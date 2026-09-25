@@ -1,0 +1,504 @@
+{
+  "projects": [
+    {
+      "id": "proj-sekolah",
+      "name": "Database Sistem Sekolah",
+      "description": "Pusat data siswa, guru, dan administrasi akademik sekolah dengan akses REST API",
+      "token": "sb_live_71abh9dn8zt9qx36",
+      "color": "indigo",
+      "icon": "GraduationCap",
+      "createdAt": "2026-09-24T07:08:43.777Z",
+      "updatedAt": "2026-09-24T08:38:08.383Z"
+    },
+    {
+      "id": "proj-toko",
+      "name": "Database Toko Online & Produk",
+      "description": "Katalog produk e-commerce, stok gudang, dan riwayat transaksi pesanan",
+      "token": "sb_live_toko_4918237491029384",
+      "color": "emerald",
+      "icon": "Store",
+      "createdAt": "2026-09-24T07:08:43.777Z"
+    }
+  ],
+  "tables": [
+    {
+      "id": "tbl-siswa",
+      "projectId": "proj-sekolah",
+      "name": "Data Siswa",
+      "slug": "siswa",
+      "description": "Daftar biodata siswa aktif dan status akademik",
+      "primaryKey": "id",
+      "fields": [
+        {
+          "key": "id",
+          "label": "ID (PK)",
+          "type": "number",
+          "required": true,
+          "isPrimaryKey": true
+        },
+        {
+          "key": "nis",
+          "label": "NIS",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "nama",
+          "label": "Nama Siswa",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "kelas",
+          "label": "Kelas",
+          "type": "select",
+          "required": true,
+          "options": [
+            "X RPL 1",
+            "XI RPL 1",
+            "XII RPL 1",
+            "XII TKJ 2"
+          ]
+        },
+        {
+          "key": "jurusan",
+          "label": "Jurusan",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "email",
+          "label": "Email",
+          "type": "email",
+          "required": false
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Aktif",
+            "Lulus",
+            "Cuti"
+          ]
+        }
+      ],
+      "createdAt": "2026-09-24T07:08:43.777Z",
+      "updatedAt": "2026-09-24T08:37:53.501Z",
+      "token": "sb_tbl_siswa_2l3cpz2h394czc5m"
+    },
+    {
+      "id": "tbl-guru",
+      "projectId": "proj-sekolah",
+      "name": "Data Guru",
+      "slug": "guru",
+      "description": "Tenaga pengajar dan pengampu mata pelajaran",
+      "primaryKey": "id",
+      "fields": [
+        {
+          "key": "id",
+          "label": "ID (PK)",
+          "type": "number",
+          "required": true,
+          "isPrimaryKey": true
+        },
+        {
+          "key": "nip",
+          "label": "NIP",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "nama",
+          "label": "Nama Guru",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "mata_pelajaran",
+          "label": "Mata Pelajaran",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "email",
+          "label": "Email",
+          "type": "email",
+          "required": false
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Aktif",
+            "Cuti"
+          ]
+        }
+      ],
+      "createdAt": "2026-09-24T07:08:43.777Z",
+      "updatedAt": "2026-09-24T07:08:43.777Z"
+    },
+    {
+      "id": "tbl-produk",
+      "projectId": "proj-toko",
+      "name": "Katalog Produk",
+      "slug": "produk",
+      "description": "Master data barang dan stok ketersediaan",
+      "primaryKey": "id",
+      "fields": [
+        {
+          "key": "id",
+          "label": "ID (PK)",
+          "type": "number",
+          "required": true,
+          "isPrimaryKey": true
+        },
+        {
+          "key": "sku",
+          "label": "Kode SKU",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "nama_produk",
+          "label": "Nama Produk",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "kategori",
+          "label": "Kategori",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Elektronik",
+            "Pakaian",
+            "Aksesoris",
+            "Buku"
+          ]
+        },
+        {
+          "key": "harga",
+          "label": "Harga (Rp)",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "stok",
+          "label": "Stok Barang",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "status",
+          "label": "Status Stok",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Tersedia",
+            "Habis",
+            "Preorder"
+          ]
+        }
+      ],
+      "createdAt": "2026-09-24T07:08:43.777Z",
+      "updatedAt": "2026-09-24T07:08:43.777Z"
+    },
+    {
+      "id": "tbl-pesanan",
+      "projectId": "proj-toko",
+      "name": "Data Pesanan",
+      "slug": "pesanan",
+      "description": "Catatan order masuk dari aplikasi luar atau web",
+      "primaryKey": "id",
+      "fields": [
+        {
+          "key": "id",
+          "label": "ID (PK)",
+          "type": "number",
+          "required": true,
+          "isPrimaryKey": true
+        },
+        {
+          "key": "nomor_resi",
+          "label": "No. Pesanan",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "pelanggan",
+          "label": "Nama Pelanggan",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "total_bayar",
+          "label": "Total Bayar (Rp)",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "metode",
+          "label": "Metode Bayar",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Transfer Bank",
+            "QRIS",
+            "COD",
+            "E-Wallet"
+          ]
+        },
+        {
+          "key": "status",
+          "label": "Status Pesanan",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Dibayar",
+            "Diproses",
+            "Dikirim",
+            "Selesai"
+          ]
+        }
+      ],
+      "createdAt": "2026-09-24T07:08:43.777Z",
+      "updatedAt": "2026-09-24T07:08:43.777Z"
+    },
+    {
+      "id": "tbl-1790237251343",
+      "projectId": "proj-toko",
+      "name": "Tess",
+      "slug": "tess",
+      "description": "Tes saja",
+      "primaryKey": "id",
+      "fields": [
+        {
+          "key": "id",
+          "label": "ID (Primary Key)",
+          "type": "number",
+          "required": true,
+          "isPrimaryKey": true
+        },
+        {
+          "key": "medsos",
+          "label": "medsos",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "username",
+          "label": "username",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "nohp",
+          "label": "nohp",
+          "type": "number",
+          "required": false
+        }
+      ],
+      "createdAt": "2026-09-24T08:07:31.343Z",
+      "updatedAt": "2026-09-24T08:07:31.343Z"
+    }
+  ],
+  "records": [
+    {
+      "id": 1,
+      "tableId": "tbl-siswa",
+      "projectId": "proj-sekolah",
+      "data": {
+        "id": 1,
+        "nis": "202401",
+        "nama": "Ahmad Faisal",
+        "kelas": "XII RPL 1",
+        "jurusan": "Rekayasa Perangkat Lunak",
+        "email": "ahmad@sekolah.sch.id",
+        "status": "Aktif"
+      },
+      "createdAt": "2026-09-24T07:08:43.777Z",
+      "updatedAt": "2026-09-24T08:12:33.005Z"
+    },
+    {
+      "id": 2,
+      "tableId": "tbl-siswa",
+      "projectId": "proj-sekolah",
+      "data": {
+        "id": 2,
+        "nis": "202402",
+        "nama": "Siti Rahmawati",
+        "kelas": "XII RPL 1",
+        "jurusan": "Rekayasa Perangkat Lunak",
+        "email": "siti@sekolah.sch.id",
+        "status": "Aktif"
+      },
+      "createdAt": "2026-09-24T07:08:43.777Z",
+      "updatedAt": "2026-09-24T07:08:43.777Z"
+    },
+    {
+      "id": 3,
+      "tableId": "tbl-siswa",
+      "projectId": "proj-sekolah",
+      "data": {
+        "id": 3,
+        "nis": "202403",
+        "nama": "Budi Kurniawan",
+        "kelas": "XII TKJ 2",
+        "jurusan": "Teknik Komputer Jaringan",
+        "email": "budi@sekolah.sch.id",
+        "status": "Aktif"
+      },
+      "createdAt": "2026-09-24T07:08:43.777Z",
+      "updatedAt": "2026-09-24T07:08:43.777Z"
+    },
+    {
+      "id": 4,
+      "tableId": "tbl-siswa",
+      "projectId": "proj-sekolah",
+      "data": {
+        "id": 4,
+        "nis": "202404",
+        "nama": "Dewi Lestari",
+        "kelas": "XI RPL 1",
+        "jurusan": "Rekayasa Perangkat Lunak",
+        "email": "dewi@sekolah.sch.id",
+        "status": "Cuti"
+      },
+      "createdAt": "2026-09-24T07:08:43.777Z",
+      "updatedAt": "2026-09-24T07:08:43.777Z"
+    },
+    {
+      "id": 1,
+      "tableId": "tbl-guru",
+      "projectId": "proj-sekolah",
+      "data": {
+        "id": 1,
+        "nip": "198501012010",
+        "nama": "Ir. Bambang Sugiarto, M.Kom",
+        "mata_pelajaran": "Pemrograman Web & REST API",
+        "email": "bambang@sekolah.sch.id",
+        "status": "Aktif"
+      },
+      "createdAt": "2026-09-24T07:08:43.778Z",
+      "updatedAt": "2026-09-24T07:08:43.778Z"
+    },
+    {
+      "id": 2,
+      "tableId": "tbl-guru",
+      "projectId": "proj-sekolah",
+      "data": {
+        "id": 2,
+        "nip": "199003152015",
+        "nama": "Nurul Hidayah, S.Pd",
+        "mata_pelajaran": "Basis Data & SQL",
+        "email": "nurul@sekolah.sch.id",
+        "status": "Aktif"
+      },
+      "createdAt": "2026-09-24T07:08:43.778Z",
+      "updatedAt": "2026-09-24T07:08:43.778Z"
+    },
+    {
+      "id": 1,
+      "tableId": "tbl-produk",
+      "projectId": "proj-toko",
+      "data": {
+        "id": 1,
+        "sku": "PRD-001",
+        "nama_produk": "Laptop Pro Creator 15\"",
+        "kategori": "Elektronik",
+        "harga": 16500000,
+        "stok": 14,
+        "status": "Tersedia"
+      },
+      "createdAt": "2026-09-24T07:08:43.778Z",
+      "updatedAt": "2026-09-24T07:08:43.778Z"
+    },
+    {
+      "id": 2,
+      "tableId": "tbl-produk",
+      "projectId": "proj-toko",
+      "data": {
+        "id": 2,
+        "sku": "PRD-002",
+        "nama_produk": "Mouse Wireless Ergonomic",
+        "kategori": "Aksesoris",
+        "harga": 350000,
+        "stok": 48,
+        "status": "Tersedia"
+      },
+      "createdAt": "2026-09-24T07:08:43.778Z",
+      "updatedAt": "2026-09-24T07:08:43.778Z"
+    },
+    {
+      "id": 3,
+      "tableId": "tbl-produk",
+      "projectId": "proj-toko",
+      "data": {
+        "id": 3,
+        "sku": "PRD-003",
+        "nama_produk": "Keyboard Mechanical RGB",
+        "kategori": "Elektronik",
+        "harga": 850000,
+        "stok": 0,
+        "status": "Habis"
+      },
+      "createdAt": "2026-09-24T07:08:43.778Z",
+      "updatedAt": "2026-09-24T07:08:43.778Z"
+    },
+    {
+      "id": 1,
+      "tableId": "tbl-pesanan",
+      "projectId": "proj-toko",
+      "data": {
+        "id": 1,
+        "nomor_resi": "INV-2026-0091",
+        "pelanggan": "Hendro Wijaya",
+        "total_bayar": 16850000,
+        "metode": "Transfer Bank",
+        "status": "Dikirim"
+      },
+      "createdAt": "2026-09-24T07:08:43.778Z",
+      "updatedAt": "2026-09-24T07:08:43.778Z"
+    },
+    {
+      "id": 2,
+      "tableId": "tbl-pesanan",
+      "projectId": "proj-toko",
+      "data": {
+        "id": 2,
+        "nomor_resi": "INV-2026-0092",
+        "pelanggan": "Anisa Putri",
+        "total_bayar": 350000,
+        "metode": "QRIS",
+        "status": "Selesai"
+      },
+      "createdAt": "2026-09-24T07:08:43.778Z",
+      "updatedAt": "2026-09-24T07:08:43.778Z"
+    },
+    {
+      "id": 9,
+      "tableId": "tbl-siswa",
+      "projectId": "proj-sekolah",
+      "data": {
+        "nama": "Budi Santoso",
+        "nis": "1099",
+        "kelas": "10-A",
+        "email": "budi@sekolah.sch.id",
+        "status": "Aktif",
+        "id": 9
+      },
+      "createdAt": "2026-09-24T09:50:36.918Z",
+      "updatedAt": "2026-09-24T09:50:36.918Z"
+    }
+  ],
+  "nextIdCounters": {
+    "tbl-siswa": 10,
+    "tbl-guru": 3,
+    "tbl-produk": 4,
+    "tbl-pesanan": 3
+  }
+}
