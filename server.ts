@@ -3,6 +3,10 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import {
   getEnvDbConfig,
   getSafeDbConfig,
@@ -1942,15 +1946,33 @@ function validateSelectFieldValues(table: DatabaseTable, payload: Record<string,
   app.delete('/api/v1/:param1/:param2/:param3', authenticateToken, handleDeleteRecord);
 
 
-  // Setup Vite dev server middleware
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: 'spa',
-  });
-  app.use(vite.middlewares);
+  // Determine if running in production mode or if compiled dist folder exists
+  const isProduction = process.env.NODE_ENV === 'production';
+  const cwdDistPath = path.resolve(process.cwd(), 'dist');
+  const dirnameDistPath = path.resolve(__dirname, 'dist');
+  const distPath = fs.existsSync(cwdDistPath) ? cwdDistPath : dirnameDistPath;
+  const indexHtmlExists = fs.existsSync(path.join(distPath, 'index.html'));
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Visual Database Engine & API] Server running on http://localhost:${PORT}`);
+  if (isProduction || indexHtmlExists) {
+    console.log(`[Server] Serving production static assets from: ${distPath}`);
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      if (req.path.startsWith('/api')) {
+        return res.status(404).json({ success: false, error: 'API route not found' });
+      }
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
+    console.log('[Server] Development mode active. Mounting Vite dev middleware...');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`[Visual Database Engine & API] Server running on port ${PORT}`);
   });
 }
 

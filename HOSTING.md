@@ -124,7 +124,18 @@ npm run build
 - Pastikan file bernama persis `.env` (memiliki titik di depan).
 - Jika mengedit dari File Manager, pastikan centang "Show Hidden Files (dotfiles)" pada pengaturan File Manager.
 
-### 3. Tampilan Blank atau Error 404 pada Sub-route Frontend
+### 3. Error `Upgrade Required` (426) Saat Mengakses Website
+- **Penyebab**: Terjadi jika server Node.js mencoba menjalankan middleware pengembang (*Vite Dev Server*) di lingkungan produksi cPanel bukannya melayani static bundle `dist/`.
+- **Solusi**:
+  1. Pastikan Anda telah menjalankan perintah `npm run build` di cPanel agar folder `dist/` dan file `server.js` terbentuk.
+  2. Pastikan file `.env` di cPanel Anda menyertakan:
+     ```env
+     NODE_ENV="production"
+     ```
+  3. Di menu **Setup Node.js App** cPanel, pastikan **Application mode** diset ke **Production**.
+  4. Klik **Restart Application**. Server Express akan secara otomatis mengenali mode produksi dan melayani aset bundel `dist/` tanpa mencoba membuka koneksi WebSocket HMR pengembang.
+
+### 4. Tampilan Blank atau Error 404 pada Sub-route Frontend
 - Server `server.js` yang ter-compile sudah memiliki fallback otomatis untuk melayani file `dist/index.html` pada setiap rute halaman React SPA.
 
 ---
