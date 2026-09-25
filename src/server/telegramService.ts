@@ -1,13 +1,18 @@
 import fetch from 'node-fetch';
 
-const TELEGRAM_BOT_TOKEN = '8140482135:AAF6HKTngDP-TFujMkGf3XJ9IPtQN6aXPno';
-const TELEGRAM_CHAT_ID = '7537699303';
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
 
 let lastAlertTimestamp = 0;
 const ALERT_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes cooldown between duplicate alerts
 
 export async function sendTelegramAlert(errorMessage: string, contextInfo?: string): Promise<void> {
   try {
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+      console.warn('[TelegramService] TELEGRAM_BOT_TOKEN atau TELEGRAM_CHAT_ID belum diatur di .env. Notifikasi Telegram dilewati.');
+      return;
+    }
+
     const now = Date.now();
     if (now - lastAlertTimestamp < ALERT_COOLDOWN_MS) {
       // Cooldown active, skip spamming Telegram

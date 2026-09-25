@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import {
   DatabaseProject,
   DatabaseTable,
@@ -13,21 +13,30 @@ import {
 import { Sidebar } from './components/Sidebar';
 import { MobileNav } from './components/MobileNav';
 import { DatabaseTableView } from './components/DatabaseTableView';
-import { ApiDocsView } from './components/ApiDocsView';
-import { ApiPlaygroundModal } from './components/ApiPlaygroundModal';
-import { ApiSandboxView } from './components/ApiSandboxView';
-import { DatabaseProjectModal } from './components/DatabaseProjectModal';
-import { OnlineDatabaseView } from './components/OnlineDatabaseView';
-import { MysqlSchemaView } from './components/MysqlSchemaView';
-import { UserManagementView } from './components/UserManagementView';
-import { MailSettingsView } from './components/MailSettingsView';
-import { AuthModal } from './components/AuthModal';
-import { ProfileModal } from './components/ProfileModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { DatabaseOutageModal } from './components/DatabaseOutageModal';
-import { LandingPageView } from './components/LandingPageView';
 import { translations } from './translations';
 import { Loader2, Plus, Database, Sparkles } from 'lucide-react';
+
+// Code Splitting via React.lazy
+const ApiDocsView = lazy(() => import('./components/ApiDocsView').then(m => ({ default: m.ApiDocsView })));
+const ApiSandboxView = lazy(() => import('./components/ApiSandboxView').then(m => ({ default: m.ApiSandboxView })));
+const OnlineDatabaseView = lazy(() => import('./components/OnlineDatabaseView').then(m => ({ default: m.OnlineDatabaseView })));
+const MysqlSchemaView = lazy(() => import('./components/MysqlSchemaView').then(m => ({ default: m.MysqlSchemaView })));
+const UserManagementView = lazy(() => import('./components/UserManagementView').then(m => ({ default: m.UserManagementView })));
+const MailSettingsView = lazy(() => import('./components/MailSettingsView').then(m => ({ default: m.MailSettingsView })));
+const LandingPageView = lazy(() => import('./components/LandingPageView').then(m => ({ default: m.LandingPageView })));
+const ApiPlaygroundModal = lazy(() => import('./components/ApiPlaygroundModal').then(m => ({ default: m.ApiPlaygroundModal })));
+const DatabaseProjectModal = lazy(() => import('./components/DatabaseProjectModal').then(m => ({ default: m.DatabaseProjectModal })));
+const AuthModal = lazy(() => import('./components/AuthModal').then(m => ({ default: m.AuthModal })));
+const ProfileModal = lazy(() => import('./components/ProfileModal').then(m => ({ default: m.ProfileModal })));
+
+const ComponentLoader = () => (
+  <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3 text-slate-400">
+    <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+    <span className="text-xs font-semibold">Memuat Komponen Tampilan...</span>
+  </div>
+);
 
 export function App() {
   const [projects, setProjects] = useState<DatabaseProject[]>([]);
@@ -588,83 +597,124 @@ export function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 min-w-0 max-w-full overflow-x-hidden overflow-y-auto p-3 sm:p-6 lg:p-8 pb-28 md:pb-8">
-        {loading ? (
-          <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 text-slate-400">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-            <span className="text-xs font-semibold">Memuat Data & Schema...</span>
-          </div>
-        ) : activeNav === 'users' && (currentUser?.role === 'admin' || currentUser?.role === 'superadmin') ? (
-          <UserManagementView
-            currentUser={currentUser}
-            language={language}
-            onOpenRegisterModal={() => {
-              setAuthModalMode('register');
-              setIsAuthModalOpen(true);
-            }}
-          />
-        ) : activeNav === 'mail-settings' && currentUser?.role === 'superadmin' ? (
-          <MailSettingsView
-            currentUser={currentUser}
-            language={language}
-          />
-        ) : activeNav === 'db-online' && currentUser?.role === 'superadmin' ? (
-          <OnlineDatabaseView
-            language={language}
-            onNavigateToSchema={() => setActiveNav('mysql-schema')}
-            onDataSynced={() => {
-              fetchProjects();
-              fetchDbStatus();
-              if (activeProjectId && activeTableId) {
-                fetchRecords(activeProjectId, activeTableId);
-              }
-            }}
-          />
-        ) : activeNav === 'mysql-schema' && currentUser?.role === 'superadmin' ? (
-          <MysqlSchemaView
-            language={language}
-            onNavigateToConnection={() => setActiveNav('db-online')}
-          />
-        ) : !activeProject ? (
-          <div className="flex flex-col items-center justify-center min-h-[65vh] text-center p-6 animate-fadeIn">
-            <div className="w-16 h-16 rounded-3xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/80 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shadow-md mb-4">
-              <Database className="w-8 h-8" />
+        <Suspense fallback={<ComponentLoader />}>
+          {loading ? (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 text-slate-400">
+              <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+              <span className="text-xs font-semibold">Memuat Data & Schema...</span>
             </div>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-2">
-              Workspace Database Anda Masih Bersih
-            </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mb-6 leading-relaxed">
-              Anda belum memiliki database aktif. Buat database baru dari awal untuk mulai membuat tabel, mengelola rekaman data, dan menghasilkan REST API instan.
-            </p>
-            <button
-              onClick={() => setIsProjectModalOpen(true)}
-              className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-bold transition-all shadow-md hover:shadow-lg flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Buat Database Pertama Anda</span>
-            </button>
-          </div>
-        ) : activeNav === 'tables' ? (
-          <DatabaseTableView
-            project={activeProject}
-            tables={tables}
-            activeTableId={activeTableId}
-            onSelectTable={setActiveTableId}
-            records={records}
-            userMode={userMode}
-            setUserMode={setUserMode}
+          ) : activeNav === 'users' && (currentUser?.role === 'admin' || currentUser?.role === 'superadmin') ? (
+            <UserManagementView
+              currentUser={currentUser}
+              language={language}
+              onOpenRegisterModal={() => {
+                setAuthModalMode('register');
+                setIsAuthModalOpen(true);
+              }}
+            />
+          ) : activeNav === 'mail-settings' && currentUser?.role === 'superadmin' ? (
+            <MailSettingsView
+              currentUser={currentUser}
+              language={language}
+            />
+          ) : activeNav === 'db-online' && currentUser?.role === 'superadmin' ? (
+            <OnlineDatabaseView
+              language={language}
+              onNavigateToSchema={() => setActiveNav('mysql-schema')}
+              onDataSynced={() => {
+                fetchProjects();
+                fetchDbStatus();
+                if (activeProjectId && activeTableId) {
+                  fetchRecords(activeProjectId, activeTableId);
+                }
+              }}
+            />
+          ) : activeNav === 'mysql-schema' && currentUser?.role === 'superadmin' ? (
+            <MysqlSchemaView
+              language={language}
+              onNavigateToConnection={() => setActiveNav('db-online')}
+            />
+          ) : !activeProject ? (
+            <div className="flex flex-col items-center justify-center min-h-[65vh] text-center p-6 animate-fadeIn">
+              <div className="w-16 h-16 rounded-3xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/80 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shadow-md mb-4">
+                <Database className="w-8 h-8" />
+              </div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-2">
+                Workspace Database Anda Masih Bersih
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mb-6 leading-relaxed">
+                Anda belum memiliki database aktif. Buat database baru dari awal untuk mulai membuat tabel, mengelola rekaman data, dan menghasilkan REST API instan.
+              </p>
+              <button
+                onClick={() => setIsProjectModalOpen(true)}
+                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-bold transition-all shadow-md hover:shadow-lg flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Buat Database Pertama Anda</span>
+              </button>
+            </div>
+          ) : activeNav === 'tables' ? (
+            <DatabaseTableView
+              project={activeProject}
+              tables={tables}
+              activeTableId={activeTableId}
+              onSelectTable={setActiveTableId}
+              records={records}
+              userMode={userMode}
+              setUserMode={setUserMode}
+              language={language}
+              onAddRecord={handleAddRecord}
+              onUpdateRecord={handleUpdateRecord}
+              onDeleteRecord={handleDeleteRecord}
+              onCreateTable={handleCreateTable}
+              onUpdateTable={handleUpdateTable}
+              onDeleteTable={handleDeleteTable}
+              onOpenPlayground={() => setIsPlaygroundOpen(true)}
+              onProjectTokenRefreshed={handleProjectTokenRefreshed}
+              onTableTokenRefreshed={handleTableTokenRefreshed}
+            />
+          ) : activeNav === 'sandbox' ? (
+            <ApiSandboxView
+              project={activeProject}
+              tables={tables}
+              activeTable={activeTable}
+              language={language}
+              onDataModified={() => {
+                if (activeProjectId && activeTableId) {
+                  fetchRecords(activeProjectId, activeTableId);
+                }
+              }}
+            />
+          ) : (
+            <ApiDocsView
+              project={activeProject}
+              tables={tables}
+              language={language}
+              onOpenPlayground={() => setIsPlaygroundOpen(true)}
+              onProjectTokenRefreshed={handleProjectTokenRefreshed}
+              onTableTokenRefreshed={handleTableTokenRefreshed}
+            />
+          )}
+        </Suspense>
+      </main>
+
+      {/* Lazy Modals wrapped in Suspense */}
+      <Suspense fallback={null}>
+        {/* Project / Database Modal */}
+        {isProjectModalOpen && (
+          <DatabaseProjectModal
+            isOpen={isProjectModalOpen}
+            onClose={() => setIsProjectModalOpen(false)}
             language={language}
-            onAddRecord={handleAddRecord}
-            onUpdateRecord={handleUpdateRecord}
-            onDeleteRecord={handleDeleteRecord}
-            onCreateTable={handleCreateTable}
-            onUpdateTable={handleUpdateTable}
-            onDeleteTable={handleDeleteTable}
-            onOpenPlayground={() => setIsPlaygroundOpen(true)}
-            onProjectTokenRefreshed={handleProjectTokenRefreshed}
-            onTableTokenRefreshed={handleTableTokenRefreshed}
+            onSave={handleCreateProject}
           />
-        ) : activeNav === 'sandbox' ? (
-          <ApiSandboxView
+        )}
+
+        {/* Live API Playground Modal */}
+        {isPlaygroundOpen && activeProject && (
+          <ApiPlaygroundModal
+            isOpen={isPlaygroundOpen}
+            onClose={() => setIsPlaygroundOpen(false)}
             project={activeProject}
             tables={tables}
             activeTable={activeTable}
@@ -675,65 +725,33 @@ export function App() {
               }
             }}
           />
-        ) : (
-          <ApiDocsView
-            project={activeProject}
-            tables={tables}
+        )}
+
+        {/* Authentication & Verification Modal */}
+        {isAuthModalOpen && (
+          <AuthModal
+            isOpen={isAuthModalOpen}
+            onClose={() => setIsAuthModalOpen(false)}
+            onAuthSuccess={handleAuthSuccess}
+            initialMode={authModalMode}
+            initialEmail={authModalEmail}
+            initialToken={authModalToken}
             language={language}
-            onOpenPlayground={() => setIsPlaygroundOpen(true)}
-            onProjectTokenRefreshed={handleProjectTokenRefreshed}
-            onTableTokenRefreshed={handleTableTokenRefreshed}
           />
         )}
-      </main>
 
-      {/* Project / Database Modal */}
-      <DatabaseProjectModal
-        isOpen={isProjectModalOpen}
-        onClose={() => setIsProjectModalOpen(false)}
-        language={language}
-        onSave={handleCreateProject}
-      />
-
-      {/* Live API Playground Modal */}
-      {activeProject && (
-        <ApiPlaygroundModal
-          isOpen={isPlaygroundOpen}
-          onClose={() => setIsPlaygroundOpen(false)}
-          project={activeProject}
-          tables={tables}
-          activeTable={activeTable}
-          language={language}
-          onDataModified={() => {
-            if (activeProjectId && activeTableId) {
-              fetchRecords(activeProjectId, activeTableId);
-            }
-          }}
-        />
-      )}
-
-      {/* Authentication & Verification Modal */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        onAuthSuccess={handleAuthSuccess}
-        initialMode={authModalMode}
-        initialEmail={authModalEmail}
-        initialToken={authModalToken}
-        language={language}
-      />
-
-      {/* User Profile Modal */}
-      {currentUser && (
-        <ProfileModal
-          isOpen={isProfileModalOpen}
-          onClose={() => setIsProfileModalOpen(false)}
-          currentUser={currentUser}
-          onProfileUpdated={(updated) => setCurrentUser(updated)}
-          onRequestLogout={handlePromptLogout}
-          language={language}
-        />
-      )}
+        {/* User Profile Modal */}
+        {isProfileModalOpen && currentUser && (
+          <ProfileModal
+            isOpen={isProfileModalOpen}
+            onClose={() => setIsProfileModalOpen(false)}
+            currentUser={currentUser}
+            onProfileUpdated={(updated) => setCurrentUser(updated)}
+            onRequestLogout={handlePromptLogout}
+            language={language}
+          />
+        )}
+      </Suspense>
 
       {/* Global Confirmation Modal */}
       <ConfirmModal
