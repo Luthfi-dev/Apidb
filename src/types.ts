@@ -133,3 +133,23 @@ export interface DatabaseProject {
   updatedAt?: string;
 }
 
+export interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
+export interface PaginatedRecordsResponse {
+  success: boolean;
+  table?: string;
+  primaryKey?: string;
+  pagination: PaginationMeta;
+  data: any[];
+  total?: number;
+  count?: number;
+}
+
+

@@ -308,24 +308,6 @@ export function App() {
     }
   };
 
-  // Fetch Records when active Table changes
-  useEffect(() => {
-    if (!activeProjectId || !activeTableId) return;
-    fetchRecords(activeProjectId, activeTableId);
-  }, [activeProjectId, activeTableId]);
-
-  const fetchRecords = async (projectId: string, tableId: string) => {
-    try {
-      const res = await fetch(`/api/projects/${projectId}/tables/${tableId}/records`, {
-        headers: getAuthHeaders()
-      });
-      const data: DatabaseRecord[] = await res.json();
-      setRecords(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error('Failed to load records:', err);
-    }
-  };
-
   // -------------------------------------------------------------
   // CRUD Handlers
   // -------------------------------------------------------------
@@ -345,8 +327,6 @@ export function App() {
       const err = await res.json();
       throw new Error(err.error || 'Gagal menambah data');
     }
-    const newRecord: DatabaseRecord = await res.json();
-    setRecords(prev => [...prev, newRecord]);
   };
 
   const handleUpdateRecord = async (recordId: number | string, formData: Record<string, any>) => {
@@ -363,8 +343,6 @@ export function App() {
       const err = await res.json();
       throw new Error(err.error || 'Gagal mengubah data');
     }
-    const updated: DatabaseRecord = await res.json();
-    setRecords(prev => prev.map(r => (String(r.id) === String(recordId) ? updated : r)));
   };
 
   const handleDeleteRecord = async (recordId: number | string) => {
@@ -374,7 +352,6 @@ export function App() {
       headers: getAuthHeaders()
     });
     if (!res.ok) throw new Error('Gagal menghapus data');
-    setRecords(prev => prev.filter(r => String(r.id) !== String(recordId)));
   };
 
   // Table CRUD
@@ -624,9 +601,6 @@ export function App() {
               onDataSynced={() => {
                 fetchProjects();
                 fetchDbStatus();
-                if (activeProjectId && activeTableId) {
-                  fetchRecords(activeProjectId, activeTableId);
-                }
               }}
             />
           ) : activeNav === 'mysql-schema' && currentUser?.role === 'superadmin' ? (
@@ -680,9 +654,7 @@ export function App() {
               activeTable={activeTable}
               language={language}
               onDataModified={() => {
-                if (activeProjectId && activeTableId) {
-                  fetchRecords(activeProjectId, activeTableId);
-                }
+                fetchProjects();
               }}
             />
           ) : (
@@ -720,9 +692,7 @@ export function App() {
             activeTable={activeTable}
             language={language}
             onDataModified={() => {
-              if (activeProjectId && activeTableId) {
-                fetchRecords(activeProjectId, activeTableId);
-              }
+              fetchProjects();
             }}
           />
         )}

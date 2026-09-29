@@ -14,7 +14,9 @@ import {
   ArrowRight,
   ShieldCheck,
   Lock,
-  WifiOff
+  Filter,
+  X,
+  ArrowUpDown
 } from 'lucide-react';
 import { Language, translations } from '../translations';
 
@@ -39,6 +41,13 @@ export function ApiSandboxView({
   const [authMode, setAuthMode] = useState<'header' | 'url'>('header');
   const [httpMethod, setHttpMethod] = useState<'GET' | 'POST' | 'PUT' | 'DELETE'>('GET');
   const [recordIdParam, setRecordIdParam] = useState<string>('');
+  const [pageParam, setPageParam] = useState<number>(1);
+  const [limitParam, setLimitParam] = useState<number>(25);
+  const [searchParam, setSearchParam] = useState<string>('');
+  const [sortParam, setSortParam] = useState<string>('id');
+  const [orderParam, setOrderParam] = useState<'asc' | 'desc'>('asc');
+  const [fieldFilterKey, setFieldFilterKey] = useState<string>('');
+  const [fieldFilterValue, setFieldFilterValue] = useState<string>('');
   const [requestBody, setRequestBody] = useState<string>('');
   const [responseStatus, setResponseStatus] = useState<number | null>(null);
   const [responseData, setResponseData] = useState<any>(null);
@@ -113,7 +122,22 @@ export function ApiSandboxView({
     }
   }
 
-  const fullUrl = `${baseUrl}${targetPath}`;
+  // Construct query string for GET list queries
+  let queryString = '';
+  if (httpMethod === 'GET' && !recordIdParam.trim()) {
+    const queryParts: string[] = [];
+    if (pageParam > 1) queryParts.push(`page=${pageParam}`);
+    if (limitParam !== 25) queryParts.push(`limit=${limitParam}`);
+    if (searchParam.trim()) queryParts.push(`search=${encodeURIComponent(searchParam.trim())}`);
+    if (sortParam && sortParam !== 'id') queryParts.push(`sort=${encodeURIComponent(sortParam)}`);
+    if (orderParam === 'desc') queryParts.push('order=desc');
+    if (fieldFilterKey.trim() && fieldFilterValue.trim()) {
+      queryParts.push(`${encodeURIComponent(fieldFilterKey.trim())}=${encodeURIComponent(fieldFilterValue.trim())}`);
+    }
+    queryString = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
+  }
+
+  const fullUrl = `${baseUrl}${targetPath}${queryString}`;
 
   const handleSendRequest = async () => {
     setIsLoading(true);
@@ -216,14 +240,14 @@ export function ApiSandboxView({
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/30 text-emerald-300 border border-emerald-400/30">
                 Interactive API Console
               </span>
-              <span className="text-xs text-slate-300 font-mono">Real-Time Database Sync</span>
+              <span className="text-xs text-slate-300 font-mono">Server-Side Pagination</span>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/30 text-indigo-300 border border-indigo-400/30">
                 Bearer Auth Enabled
               </span>
             </div>
             <h1 className="text-lg sm:text-xl font-bold">Live REST API Sandbox: {project.name}</h1>
             <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-              Kirim permintaan GET, POST, PUT, dan DELETE secara langsung ke database ini. Tersedia opsi pengiriman token via <strong>HTTP Header (Paling Aman)</strong> atau via URL Path (Legacy).
+              Kirim permintaan GET, POST, PUT, dan DELETE secara langsung ke database. Mendukung parameter paginasi (<code className="text-emerald-300 font-mono">page</code>, <code className="text-emerald-300 font-mono">limit</code>, <code className="text-emerald-300 font-mono">search</code>, <code className="text-emerald-300 font-mono">sort</code>, <code className="text-emerald-300 font-mono">order</code>).
             </p>
           </div>
         </div>
@@ -332,6 +356,158 @@ export function ApiSandboxView({
             </button>
           </div>
 
+          {/* GET Query Parameters Toolbar for Testing Server Pagination */}
+          {httpMethod === 'GET' && !recordIdParam.trim() && (
+            <div className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2">
+              <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Pengaturan Paginasi & Pencarian API (Query Parameters):</span>
+              </span>
+
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                <div>
+                  <label className="text-[10px] text-slate-400 font-mono block">page:</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={pageParam}
+                    onChange={e => setPageParam(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-slate-400 font-mono block">limit:</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={limitParam}
+                    onChange={e => setLimitParam(Math.max(1, parseInt(e.target.value, 10) || 25))}
+                    className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-slate-400 font-mono block">search (q):</label>
+                  <input
+                    type="text"
+                    value={searchParam}
+                    onChange={e => setSearchParam(e.target.value)}
+                    placeholder="kata kunci..."
+                    className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-slate-400 font-mono block">sort:</label>
+                  <select
+                    value={sortParam}
+                    onChange={e => setSortParam(e.target.value)}
+                    className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs"
+                  >
+                    <option value="id">ID (id)</option>
+                    <option value="created_at">Waktu Buat</option>
+                    {currentTable?.fields.filter(f => f.key !== 'id').map(f => (
+                      <option key={f.key} value={f.key}>{f.label} ({f.key})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-slate-400 font-mono block">order:</label>
+                  <select
+                    value={orderParam}
+                    onChange={e => setOrderParam(e.target.value as any)}
+                    className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-semibold"
+                  >
+                    <option value="asc">ASC (A-Z / 1-9)</option>
+                    <option value="desc">DESC (Z-A / Terbaru)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Field Filter Row */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center gap-2 text-xs">
+                <span className="text-[11px] font-bold text-slate-500 shrink-0">
+                  Filter Kolom Spesifik (?kolom=nilai):
+                </span>
+                <div className="flex items-center gap-2 flex-1">
+                  <select
+                    value={fieldFilterKey}
+                    onChange={e => {
+                      setFieldFilterKey(e.target.value);
+                      setFieldFilterValue('');
+                    }}
+                    className="w-40 px-2 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs"
+                  >
+                    <option value="">-- Pilih Kolom --</option>
+                    {currentTable?.fields.map(f => (
+                      <option key={f.key} value={f.key}>{f.label} ({f.key})</option>
+                    ))}
+                  </select>
+
+                  {fieldFilterKey && (
+                    <div className="flex-1 flex items-center gap-1.5">
+                      {(() => {
+                        const targetF = currentTable?.fields.find(f => f.key === fieldFilterKey);
+                        if (targetF?.type === 'select' && targetF.options && targetF.options.length > 0) {
+                          return (
+                            <select
+                              value={fieldFilterValue}
+                              onChange={e => setFieldFilterValue(e.target.value)}
+                              className="flex-1 px-2 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs"
+                            >
+                              <option value="">-- Semua Nilai --</option>
+                              {targetF.options.map((opt, oIdx) => (
+                                <option key={oIdx} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          );
+                        }
+                        if (targetF?.type === 'boolean') {
+                          return (
+                            <select
+                              value={fieldFilterValue}
+                              onChange={e => setFieldFilterValue(e.target.value)}
+                              className="flex-1 px-2 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs"
+                            >
+                              <option value="">-- Semua Nilai --</option>
+                              <option value="true">True (Aktif/Ya)</option>
+                              <option value="false">False (Nonaktif/Tidak)</option>
+                            </select>
+                          );
+                        }
+                        return (
+                          <input
+                            type="text"
+                            value={fieldFilterValue}
+                            onChange={e => setFieldFilterValue(e.target.value)}
+                            placeholder="Nilai target persis (contoh: ABC)"
+                            className="flex-1 px-2 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs"
+                          />
+                        );
+                      })()}
+                      {fieldFilterValue && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFieldFilterKey('');
+                            setFieldFilterValue('');
+                          }}
+                          className="p-1 text-slate-400 hover:text-rose-500 rounded"
+                          title="Hapus filter kolom"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* POST Auto-increment info */}
           {httpMethod === 'POST' && (
             <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50/70 dark:bg-emerald-950/40 px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800/40">
@@ -424,7 +600,7 @@ export function ApiSandboxView({
                 </span>
                 <span className="text-[11px] mt-1 text-slate-400 max-w-xs">
                   {httpMethod === 'GET'
-                    ? 'Permintaan GET mengambil data langsung dari parameter URL tabel dan ID.'
+                    ? 'Permintaan GET mengambil data langsung dari parameter URL, paginasi, dan filter yang ditentukan.'
                     : 'Permintaan DELETE menghapus data berdasarkan parameter ID yang ditentukan di URL.'}
                 </span>
               </div>
@@ -455,34 +631,17 @@ export function ApiSandboxView({
                 <button
                   type="button"
                   onClick={handleCopyResponse}
-                  className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
                 >
-                  {copiedRes ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedRes ? t.copied : 'Salin JSON'}</span>
+                  {copiedRes ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedRes ? 'Disalin!' : 'Salin JSON'}</span>
                 </button>
               )}
             </div>
 
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 min-h-[220px] max-h-[340px] overflow-y-auto font-mono text-xs text-slate-200 leading-relaxed">
-              {isLoading ? (
-                <div className="flex items-center justify-center py-16 gap-2 text-slate-400">
-                  <RefreshCw className="w-4 h-4 animate-spin text-emerald-500" />
-                  <span>Mengirimkan request ke REST API...</span>
-                </div>
-              ) : responseData ? (
-                <pre className="whitespace-pre-wrap break-all text-emerald-400">
-                  {JSON.stringify(responseData, null, 2)}
-                </pre>
-              ) : (
-                <div className="py-16 text-center text-slate-500">
-                  <Terminal className="w-8 h-8 mx-auto mb-2 opacity-40 text-slate-600" />
-                  <p className="font-semibold text-slate-400">Belum ada request yang dikirim</p>
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    Tekan tombol "Kirim Request" di atas untuk menguji respon API secara langsung.
-                  </p>
-                </div>
-              )}
-            </div>
+            <pre className="w-full p-4 font-mono text-xs bg-slate-950 text-emerald-400 border border-slate-800 rounded-xl overflow-x-auto min-h-[240px] max-h-[420px] leading-relaxed">
+              {responseData ? JSON.stringify(responseData, null, 2) : '// Klik "Kirim Request" untuk melihat respon langsung dari REST API'}
+            </pre>
           </div>
         </div>
       </div>

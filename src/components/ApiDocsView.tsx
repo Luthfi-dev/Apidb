@@ -16,6 +16,7 @@ import {
   WifiOff,
   RotateCw,
   Search,
+  Filter,
   Table as TableIcon
 } from 'lucide-react';
 import { Language, translations } from '../translations';
@@ -72,10 +73,15 @@ export function ApiDocsView({
     });
     const jsonBody = JSON.stringify(samplePayload, null, 2);
 
+    const firstCustomField = tbl.fields.find(f => !f.isPrimaryKey && f.key !== 'id') || { key: 'status', label: 'Status', type: 'text' };
+    const sampleFilterVal = firstCustomField.type === 'select' && firstCustomField.options?.length ? firstCustomField.options[0] : 'ABC';
+
     if (authMethod === 'header') {
       return {
         curl: {
           getAll: `curl -X GET "${endpoint}" \\\n  -H "Authorization: Bearer ${tblToken}" \\\n  -H "Accept: application/json"`,
+          getPagination: `curl -X GET "${endpoint}?page=1&limit=25&sort=id&order=asc" \\\n  -H "Authorization: Bearer ${tblToken}" \\\n  -H "Accept: application/json"`,
+          getFieldFilter: `curl -X GET "${endpoint}?${firstCustomField.key}=${encodeURIComponent(sampleFilterVal)}&page=1&limit=25" \\\n  -H "Authorization: Bearer ${tblToken}" \\\n  -H "Accept: application/json"`,
           getOne: `curl -X GET "${endpoint}/1" \\\n  -H "Authorization: Bearer ${tblToken}" \\\n  -H "Accept: application/json"`,
           getSearch: `curl -X GET "${endpoint}?search=kata_kunci" \\\n  -H "Authorization: Bearer ${tblToken}" \\\n  -H "Accept: application/json"`,
           post: `curl -X POST "${endpoint}" \\\n  -H "Authorization: Bearer ${tblToken}" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(samplePayload)}'`,
@@ -84,6 +90,8 @@ export function ApiDocsView({
         },
         js: {
           getAll: `// GET Semua Data Tabel ${tbl.name}\nfetch('${endpoint}', {\n  headers: {\n    'Authorization': 'Bearer ${tblToken}',\n    'Accept': 'application/json'\n  }\n})\n  .then(res => res.json())\n  .then(data => console.log(data));`,
+          getPagination: `// GET Data Terpaginasi & Terurut (Halaman 1, 25 Data per Page)\nfetch('${endpoint}?page=1&limit=25&sort=id&order=asc', {\n  headers: {\n    'Authorization': 'Bearer ${tblToken}',\n    'Accept': 'application/json'\n  }\n})\n  .then(res => res.json())\n  .then(response => {\n    console.log('Total Data:', response.pagination.total);\n    console.log('Total Halaman:', response.pagination.totalPages);\n    console.log('Daftar Record:', response.data);\n  });`,
+          getFieldFilter: `// GET Filter Kolom Spesifik (?${firstCustomField.key}=${sampleFilterVal})\nfetch('${endpoint}?${firstCustomField.key}=${encodeURIComponent(sampleFilterVal)}&page=1&limit=25', {\n  headers: {\n    'Authorization': 'Bearer ${tblToken}',\n    'Accept': 'application/json'\n  }\n})\n  .then(res => res.json())\n  .then(data => console.log('Data Terfilter (${firstCustomField.key} = ${sampleFilterVal}):', data));`,
           getOne: `// GET Single Record Berdasarkan ID (#1)\nfetch('${endpoint}/1', {\n  headers: {\n    'Authorization': 'Bearer ${tblToken}',\n    'Accept': 'application/json'\n  }\n})\n  .then(res => res.json())\n  .then(data => console.log('Single Record:', data));`,
           getSearch: `// GET Pencarian Data via ?search=kata_kunci\nfetch('${endpoint}?search=kata_kunci', {\n  headers: {\n    'Authorization': 'Bearer ${tblToken}',\n    'Accept': 'application/json'\n  }\n})\n  .then(res => res.json())\n  .then(data => console.log('Hasil Pencarian:', data));`,
           post: `// Tambah Data Baru (POST)\nfetch('${endpoint}', {\n  method: 'POST',\n  headers: {\n    'Authorization': 'Bearer ${tblToken}',\n    'Content-Type': 'application/json'\n  },\n  body: JSON.stringify(${jsonBody})\n})\n  .then(res => res.json())\n  .then(data => console.log('Data tersimpan:', data));`,
@@ -92,6 +100,8 @@ export function ApiDocsView({
         },
         python: {
           getAll: `import requests\n\nheaders = {"Authorization": "Bearer ${tblToken}"}\nurl = "${endpoint}"\nresponse = requests.get(url, headers=headers)\nprint(response.json())`,
+          getPagination: `import requests\n\nheaders = {"Authorization": "Bearer ${tblToken}"}\nurl = "${endpoint}"\nparams = {"page": 1, "limit": 25, "sort": "id", "order": "asc"}\nresponse = requests.get(url, headers=headers, params=params)\nres_data = response.json()\nprint(f"Total: {res_data['pagination']['total']}, Halaman: {res_data['pagination']['page']}/{res_data['pagination']['totalPages']}")\nprint(res_data["data"])`,
+          getFieldFilter: `import requests\n\nheaders = {"Authorization": "Bearer ${tblToken}"}\nurl = "${endpoint}"\nparams = {"${firstCustomField.key}": "${sampleFilterVal}", "page": 1, "limit": 25}\nresponse = requests.get(url, headers=headers, params=params)\nprint(response.json())`,
           getOne: `import requests\n\nheaders = {"Authorization": "Bearer ${tblToken}"}\nurl = "${endpoint}/1"\nresponse = requests.get(url, headers=headers)\nprint(response.json())`,
           getSearch: `import requests\n\nheaders = {"Authorization": "Bearer ${tblToken}"}\nurl = "${endpoint}"\nparams = {"search": "kata_kunci"}\nresponse = requests.get(url, headers=headers, params=params)\nprint(response.json())`,
           post: `import requests\n\nheaders = {\n    "Authorization": "Bearer ${tblToken}",\n    "Content-Type": "application/json"\n}\nurl = "${endpoint}"\npayload = ${JSON.stringify(samplePayload, null, 4)}\nresponse = requests.post(url, headers=headers, json=payload)\nprint(response.json())`,
@@ -100,6 +110,8 @@ export function ApiDocsView({
         },
         php: {
           getAll: `<?php\n// GET Semua Data\n$url = "${endpoint}";\n$options = [\n  'http' => [\n    'header' => "Authorization: Bearer ${tblToken}\\r\\nAccept: application/json\\r\\n",\n    'method' => 'GET'\n  ]\n];\n$context = stream_context_create($options);\n$response = file_get_contents($url, false, $context);\nprint_r(json_decode($response, true));`,
+          getPagination: `<?php\n// GET Data Paginasi (Halaman 1, Limit 25)\n$url = "${endpoint}?page=1&limit=25&sort=id&order=asc";\n$options = [\n  'http' => [\n    'header' => "Authorization: Bearer ${tblToken}\\r\\nAccept: application/json\\r\\n",\n    'method' => 'GET'\n  ]\n];\n$context = stream_context_create($options);\n$response = file_get_contents($url, false, $context);\n$data = json_decode($response, true);\necho "Total: " . $data['pagination']['total'] . "\\n";\nprint_r($data['data']);`,
+          getFieldFilter: `<?php\n// GET Filter Nilai Kolom Spesifik (${firstCustomField.key} = ${sampleFilterVal})\n$url = "${endpoint}?${firstCustomField.key}=" . urlencode("${sampleFilterVal}") . "&page=1&limit=25";\n$options = [\n  'http' => [\n    'header' => "Authorization: Bearer ${tblToken}\\r\\nAccept: application/json\\r\\n",\n    'method' => 'GET'\n  ]\n];\n$context = stream_context_create($options);\n$response = file_get_contents($url, false, $context);\nprint_r(json_decode($response, true));`,
           getOne: `<?php\n// GET Single Record (#1)\n$url = "${endpoint}/1";\n$options = [\n  'http' => [\n    'header' => "Authorization: Bearer ${tblToken}\\r\\nAccept: application/json\\r\\n",\n    'method' => 'GET'\n  ]\n];\n$context = stream_context_create($options);\n$response = file_get_contents($url, false, $context);\nprint_r(json_decode($response, true));`,
           getSearch: `<?php\n// GET Pencarian Data (?search=kata_kunci)\n$url = "${endpoint}?search=" . urlencode("kata_kunci");\n$options = [\n  'http' => [\n    'header' => "Authorization: Bearer ${tblToken}\\r\\nAccept: application/json\\r\\n",\n    'method' => 'GET'\n  ]\n];\n$context = stream_context_create($options);\n$response = file_get_contents($url, false, $context);\nprint_r(json_decode($response, true));`,
           post: `<?php\n// POST Data Baru\n$url = "${endpoint}";\n$data = ${jsonBody};\n$options = [\n  'http' => [\n    'header' => "Authorization: Bearer ${tblToken}\\r\\nContent-Type: application/json\\r\\n",\n    'method' => 'POST',\n    'content' => json_encode($data)\n  ]\n];\n$context = stream_context_create($options);\n$result = file_get_contents($url, false, $context);\nprint_r(json_decode($result, true));`,
@@ -113,6 +125,8 @@ export function ApiDocsView({
     return {
       curl: {
         getAll: `curl -X GET "${endpoint}" \\\n  -H "Accept: application/json"`,
+        getPagination: `curl -X GET "${endpoint}?page=1&limit=25&sort=id&order=asc" \\\n  -H "Accept: application/json"`,
+        getFieldFilter: `curl -X GET "${endpoint}?${firstCustomField.key}=${encodeURIComponent(sampleFilterVal)}&page=1&limit=25" \\\n  -H "Accept: application/json"`,
         getOne: `curl -X GET "${endpoint}/1" \\\n  -H "Accept: application/json"`,
         getSearch: `curl -X GET "${endpoint}?search=kata_kunci" \\\n  -H "Accept: application/json"`,
         post: `curl -X POST "${endpoint}" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(samplePayload)}'`,
@@ -121,6 +135,8 @@ export function ApiDocsView({
       },
       js: {
         getAll: `// GET Semua Data Tabel ${tbl.name} (URL Token)\nfetch('${endpoint}')\n  .then(res => res.json())\n  .then(data => console.log(data));`,
+        getPagination: `// GET Paginasi (URL Token)\nfetch('${endpoint}?page=1&limit=25&sort=id&order=asc')\n  .then(res => res.json())\n  .then(data => console.log(data));`,
+        getFieldFilter: `// GET Filter Kolom Spesifik (URL Token)\nfetch('${endpoint}?${firstCustomField.key}=${encodeURIComponent(sampleFilterVal)}&page=1&limit=25')\n  .then(res => res.json())\n  .then(data => console.log(data));`,
         getOne: `// GET Record #1 (URL Token)\nfetch('${endpoint}/1')\n  .then(res => res.json())\n  .then(data => console.log(data));`,
         getSearch: `// GET Pencarian Data (URL Token)\nfetch('${endpoint}?search=kata_kunci')\n  .then(res => res.json())\n  .then(data => console.log(data));`,
         post: `// Tambah Data Baru (URL Token)\nfetch('${endpoint}', {\n  method: 'POST',\n  headers: { 'Content-Type': 'application/json' },\n  body: JSON.stringify(${jsonBody})\n})\n  .then(res => res.json())\n  .then(data => console.log('Data tersimpan:', data));`,
@@ -129,6 +145,8 @@ export function ApiDocsView({
       },
       python: {
         getAll: `import requests\n\nurl = "${endpoint}"\nresponse = requests.get(url)\nprint(response.json())`,
+        getPagination: `import requests\n\nurl = "${endpoint}"\nparams = {"page": 1, "limit": 25}\nresponse = requests.get(url, params=params)\nprint(response.json())`,
+        getFieldFilter: `import requests\n\nurl = "${endpoint}"\nparams = {"${firstCustomField.key}": "${sampleFilterVal}", "page": 1, "limit": 25}\nresponse = requests.get(url, params=params)\nprint(response.json())`,
         getOne: `import requests\n\nurl = "${endpoint}/1"\nresponse = requests.get(url)\nprint(response.json())`,
         getSearch: `import requests\n\nurl = "${endpoint}"\nparams = {"search": "kata_kunci"}\nresponse = requests.get(url, params=params)\nprint(response.json())`,
         post: `import requests\n\nurl = "${endpoint}"\npayload = ${JSON.stringify(samplePayload, null, 4)}\nresponse = requests.post(url, json=payload)\nprint(response.json())`,
@@ -137,11 +155,13 @@ export function ApiDocsView({
       },
       php: {
         getAll: `<?php\n$url = "${endpoint}";\n$response = file_get_contents($url);\nprint_r(json_decode($response, true));`,
+        getPagination: `<?php\n$url = "${endpoint}?page=1&limit=25";\n$response = file_get_contents($url);\nprint_r(json_decode($response, true));`,
+        getFieldFilter: `<?php\n$url = "${endpoint}?${firstCustomField.key}=" . urlencode("${sampleFilterVal}") . "&page=1&limit=25";\n$response = file_get_contents($url);\nprint_r(json_decode($response, true));`,
         getOne: `<?php\n$url = "${endpoint}/1";\n$response = file_get_contents($url);\nprint_r(json_decode($response, true));`,
         getSearch: `<?php\n$url = "${endpoint}?search=" . urlencode("kata_kunci");\n$response = file_get_contents($url);\nprint_r(json_decode($response, true));`,
         post: `<?php\n$url = "${endpoint}";\n$data = ${jsonBody};\n$options = [\n  'http' => [\n    'header' => "Content-Type: application/json\\r\\n",\n    'method' => 'POST',\n    'content' => json_encode($data)\n  ]\n];\n$context = stream_context_create($options);\n$result = file_get_contents($url, false, $context);\nprint_r(json_decode($result, true));`,
         put: `<?php\n$url = "${endpoint}/1";\n$data = ${jsonBody};\n$options = [\n  'http' => [\n    'header' => "Content-Type: application/json\\r\\n",\n    'method' => 'PUT',\n    'content' => json_encode($data)\n  ]\n];\n$context = stream_context_create($options);\n$result = file_get_contents($url, false, $context);\nprint_r(json_decode($result, true));`,
-        del: `<?php\n$url = "${endpoint}/1";\n$options = [\n  'http' => [\n    'method' => 'DELETE'\n  ]\n];\n$context = stream_context_create($options);\n$result = file_get_contents($url, false, $context);\nprint_r(json_decode($result, true));`
+        del: `<?php\n$url = "${endpoint}/1";\n$options = [\n  'http' => [\n    'header' => "Method: DELETE\\r\\n",\n    'method' => 'DELETE'\n  ]\n];\n$context = stream_context_create($options);\n$result = file_get_contents($url, false, $context);\nprint_r(json_decode($result, true));`
       }
     };
   };
@@ -388,7 +408,7 @@ export function ApiDocsView({
                     GET
                   </span>
                   <span className="font-semibold text-slate-700 dark:text-slate-300">
-                    1. Ambil Semua Data ({currentTable.name})
+                    1. Ambil Data Dasar ({currentTable.name})
                   </span>
                 </div>
                 <button
@@ -404,7 +424,65 @@ export function ApiDocsView({
               </pre>
             </div>
 
-            {/* 2. GET ONE BY ID */}
+            {/* 2. GET PAGINATION & SORT */}
+            {snippets[activeCodeLang].getPagination && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300 font-mono font-bold rounded">
+                      GET PAGINATION
+                    </span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">
+                      2. Paginasi & Pengurutan Data Skala Besar (?page=1&limit=25&sort=id&order=asc)
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleCopy(snippets[activeCodeLang].getPagination!, 'getPagination')}
+                    className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-semibold"
+                  >
+                    {copiedKey === 'getPagination' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedKey === 'getPagination' ? 'Disalin' : 'Salin Kode'}</span>
+                  </button>
+                </div>
+                <pre className="p-3.5 bg-slate-950 text-violet-300 font-mono text-xs rounded-xl overflow-x-auto whitespace-pre-wrap break-all leading-relaxed border border-slate-800">
+                  {snippets[activeCodeLang].getPagination}
+                </pre>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                  💡 <strong>Direkomendasikan untuk aplikasi produksi:</strong> Menggunakan parameter <code className="font-mono text-indigo-600 dark:text-indigo-400">page</code> dan <code className="font-mono text-indigo-600 dark:text-indigo-400">limit</code> menjaga konsumsi memori server sangat ringan dan waktu muat data super cepat.
+                </div>
+              </div>
+            )}
+
+            {/* 3. GET FILTER BY FIELD */}
+            {(snippets[activeCodeLang] as any).getFieldFilter && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 font-mono font-bold rounded flex items-center gap-1">
+                      <Filter className="w-3 h-3" /> GET FILTER
+                    </span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">
+                      3. Filter Data Berdasarkan Kolom Spesifik (misal: ?status=Aktif atau ?kategori=ABC)
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleCopy((snippets[activeCodeLang] as any).getFieldFilter!, 'getFieldFilter')}
+                    className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-semibold"
+                  >
+                    {copiedKey === 'getFieldFilter' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedKey === 'getFieldFilter' ? 'Disalin' : 'Salin Kode'}</span>
+                  </button>
+                </div>
+                <pre className="p-3.5 bg-slate-950 text-teal-300 font-mono text-xs rounded-xl overflow-x-auto whitespace-pre-wrap break-all leading-relaxed border border-slate-800">
+                  {(snippets[activeCodeLang] as any).getFieldFilter}
+                </pre>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                  🎯 <strong>Filter Tepat:</strong> Tarik hanya data yang benar-benar bernilai spesifik (misal: <code className="font-mono text-indigo-600 dark:text-indigo-400">?status=Aktif</code> atau <code className="font-mono text-indigo-600 dark:text-indigo-400">?kategori=Elektronik</code> atau multi-nilai <code className="font-mono text-indigo-600 dark:text-indigo-400">?status=Aktif,Cuti</code>).
+                </div>
+              </div>
+            )}
+
+            {/* 4. GET ONE BY ID */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
@@ -412,7 +490,7 @@ export function ApiDocsView({
                     GET
                   </span>
                   <span className="font-semibold text-slate-700 dark:text-slate-300">
-                    2. Ambil 1 Data Berdasarkan ID Specific (/{currentTable.slug}/:id)
+                    4. Ambil 1 Data Berdasarkan ID Specific (/{currentTable.slug}/:id)
                   </span>
                 </div>
                 <button
@@ -428,7 +506,7 @@ export function ApiDocsView({
               </pre>
             </div>
 
-            {/* 3. GET SEARCH */}
+            {/* 5. GET SEARCH */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
@@ -436,7 +514,7 @@ export function ApiDocsView({
                     <Search className="w-3 h-3" /> GET
                   </span>
                   <span className="font-semibold text-slate-700 dark:text-slate-300">
-                    3. Pencarian Data via Query Parameter (?search=kata_kunci)
+                    5. Pencarian Data via Query Parameter (?search=kata_kunci)
                   </span>
                 </div>
                 <button
@@ -455,7 +533,7 @@ export function ApiDocsView({
               </div>
             </div>
 
-            {/* 4. POST CREATE */}
+            {/* 6. POST CREATE */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
@@ -463,7 +541,7 @@ export function ApiDocsView({
                     POST
                   </span>
                   <span className="font-semibold text-slate-700 dark:text-slate-300">
-                    4. Tambah Record Baru (#ID Primary Key dibuat otomatis)
+                    6. Tambah Record Baru (#ID Primary Key dibuat otomatis)
                   </span>
                 </div>
                 <button
@@ -479,7 +557,7 @@ export function ApiDocsView({
               </pre>
             </div>
 
-            {/* 5. PUT UPDATE */}
+            {/* 7. PUT UPDATE */}
             {snippets[activeCodeLang].put && (
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
@@ -488,7 +566,7 @@ export function ApiDocsView({
                       PUT
                     </span>
                     <span className="font-semibold text-slate-700 dark:text-slate-300">
-                      5. Perbarui Data Berdasarkan ID Target (#1)
+                      7. Perbarui Data Berdasarkan ID Target (#1)
                     </span>
                   </div>
                   <button
@@ -505,7 +583,7 @@ export function ApiDocsView({
               </div>
             )}
 
-            {/* 6. DELETE */}
+            {/* 8. DELETE */}
             {snippets[activeCodeLang].del && (
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
@@ -514,7 +592,7 @@ export function ApiDocsView({
                       DELETE
                     </span>
                     <span className="font-semibold text-slate-700 dark:text-slate-300">
-                      6. Hapus Record Berdasarkan ID Target (#1)
+                      8. Hapus Record Berdasarkan ID Target (#1)
                     </span>
                   </div>
                   <button
@@ -533,6 +611,114 @@ export function ApiDocsView({
           </div>
         </div>
       )}
+
+      {/* Query Parameters & Pagination Reference Card */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xs space-y-4">
+        <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <Server className="w-4 h-4 text-emerald-500" />
+            <span>Referensi Query Parameters & Paginasi (Scalable API)</span>
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Gunakan parameter berikut pada request <code className="font-mono text-indigo-600 dark:text-indigo-400">GET</code> untuk memuat jutaan data secara bertahap tanpa membebani server dan aplikasi klien Anda.
+          </p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold text-slate-500 pb-2">
+                <th className="pb-2 font-mono">Parameter</th>
+                <th className="pb-2">Tipe Data</th>
+                <th className="pb-2">Default</th>
+                <th className="pb-2">Deskripsi & Contoh Penggunaan</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
+              <tr>
+                <td className="py-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">page</td>
+                <td className="py-2.5 font-mono text-slate-500">integer</td>
+                <td className="py-2.5 font-mono">1</td>
+                <td className="py-2.5">
+                  Nomor halaman data yang ingin diambil (contoh: <code className="font-mono text-indigo-500">?page=2</code>).
+                </td>
+              </tr>
+              <tr>
+                <td className="py-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">limit</td>
+                <td className="py-2.5 font-mono text-slate-500">integer</td>
+                <td className="py-2.5 font-mono">25</td>
+                <td className="py-2.5">
+                  Jumlah record per halaman (maksimal 250 untuk stabilitas performa, contoh: <code className="font-mono text-indigo-500">?limit=50</code>).
+                </td>
+              </tr>
+              <tr>
+                <td className="py-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">search</td>
+                <td className="py-2.5 font-mono text-slate-500">string</td>
+                <td className="py-2.5 font-mono">-</td>
+                <td className="py-2.5">
+                  Kata kunci pencarian otomatis di seluruh kolom atau kolom searchable yang diizinkan (contoh: <code className="font-mono text-indigo-500">?search=Ahmad</code>).
+                </td>
+              </tr>
+              <tr>
+                <td className="py-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">sort</td>
+                <td className="py-2.5 font-mono text-slate-500">string</td>
+                <td className="py-2.5 font-mono">id</td>
+                <td className="py-2.5">
+                  Nama kolom kunci pengurutan (contoh: <code className="font-mono text-indigo-500">?sort=nama</code> atau <code className="font-mono text-indigo-500">?sort=harga</code>).
+                </td>
+              </tr>
+              <tr>
+                <td className="py-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">order</td>
+                <td className="py-2.5 font-mono text-slate-500">"asc" | "desc"</td>
+                <td className="py-2.5 font-mono">asc</td>
+                <td className="py-2.5">
+                  Arah pengurutan (<code className="font-mono text-indigo-500">asc</code> untuk urutan terkecil/A-Z, <code className="font-mono text-indigo-500">desc</code> untuk terbaru/Z-A).
+                </td>
+              </tr>
+              <tr>
+                <td className="py-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">[nama_kolom]</td>
+                <td className="py-2.5 font-mono text-slate-500">any</td>
+                <td className="py-2.5 font-mono">-</td>
+                <td className="py-2.5">
+                  Filter nilai kolom spesifik secara langsung (contoh: <code className="font-mono text-indigo-500">?status=Aktif&kategori=Elektronik</code>).
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* JSON Response Structure Example */}
+        <div className="space-y-1.5 pt-2">
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+            Format Standar Response JSON API:
+          </span>
+          <pre className="p-3.5 bg-slate-950 text-emerald-400 font-mono text-xs rounded-xl overflow-x-auto leading-relaxed border border-slate-800">
+{`{
+  "success": true,
+  "table": "${currentTable?.slug || 'siswa'}",
+  "primaryKey": "id",
+  "pagination": {
+    "page": 1,
+    "limit": 25,
+    "total": 5420,
+    "totalPages": 217,
+    "hasNextPage": true,
+    "hasPrevPage": false
+  },
+  "total": 5420,
+  "count": 25,
+  "data": [
+    {
+      "id": 1,
+      "_created_at": "2026-09-25T10:00:00.000Z",
+      "_updated_at": "2026-09-25T10:00:00.000Z",
+      ...data_kolom_tabel
+    }
+  ]
+}`}
+          </pre>
+        </div>
+      </div>
 
       {/* Refresh Token Modal */}
       <RefreshTokenModal

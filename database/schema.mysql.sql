@@ -71,6 +71,9 @@ CREATE TABLE `df_records` (
   PRIMARY KEY (`table_id`, `id`),
   KEY `idx_records_project` (`project_id`),
   KEY `idx_records_table` (`table_id`),
+  KEY `idx_records_table_created` (`table_id`, `created_at`),
+  KEY `idx_records_table_updated` (`table_id`, `updated_at`),
+  KEY `idx_records_created` (`created_at`),
   CONSTRAINT `fk_records_table` FOREIGN KEY (`table_id`) 
     REFERENCES `df_tables` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fk_records_project` FOREIGN KEY (`project_id`) 

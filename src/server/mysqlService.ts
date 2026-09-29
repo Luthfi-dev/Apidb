@@ -138,9 +138,11 @@ function parseConnectionOptions(cfg: MySQLConfig): mysql.PoolOptions {
       database: url.pathname.replace(/^\//, '') || 'dataforge_db',
       ssl: cfg.ssl ? { rejectUnauthorized: false } : undefined,
       waitForConnections: true,
-      connectionLimit: 10,
+      connectionLimit: 25,
       queueLimit: 0,
-      connectTimeout: 8000
+      connectTimeout: 10000,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000
     };
   }
 
@@ -152,9 +154,11 @@ function parseConnectionOptions(cfg: MySQLConfig): mysql.PoolOptions {
     database: cfg.database || 'dataforge_db',
     ssl: cfg.ssl ? { rejectUnauthorized: false } : undefined,
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: 25,
     queueLimit: 0,
-    connectTimeout: 8000
+    connectTimeout: 10000,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000
   };
 }
 
@@ -204,6 +208,21 @@ async function addColumnIfNotExists(pool: mysql.Pool, table: string, column: str
   }
 }
 
+// Helper to add index safely to table if not exists
+async function addIndexIfNotExists(pool: mysql.Pool, table: string, indexName: string, indexDef: string): Promise<void> {
+  try {
+    const [indexes]: any = await pool.query(
+      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_NAME = ? AND INDEX_NAME = ? AND TABLE_SCHEMA = DATABASE()`,
+      [table, indexName]
+    );
+    if (indexes.length === 0) {
+      await pool.query(`ALTER TABLE \`${table}\` ADD INDEX \`${indexName}\` ${indexDef}`);
+    }
+  } catch (err) {
+    // Ignore if index already exists
+  }
+}
+
 export async function initMySQLTables(pool: mysql.Pool): Promise<void> {
   // Create df_projects
   await pool.query(`
@@ -242,7 +261,7 @@ export async function initMySQLTables(pool: mysql.Pool): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
-  // Create df_records
+  // Create df_records with high-performance composite indexes for large data pagination
   await pool.query(`
     CREATE TABLE IF NOT EXISTS \`df_records\` (
       \`id\` VARCHAR(128) NOT NULL,
@@ -253,9 +272,15 @@ export async function initMySQLTables(pool: mysql.Pool): Promise<void> {
       \`updated_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (\`table_id\`, \`id\`),
       KEY \`idx_records_project\` (\`project_id\`),
-      KEY \`idx_records_table\` (\`table_id\`)
+      KEY \`idx_records_table\` (\`table_id\`),
+      KEY \`idx_records_table_created\` (\`table_id\`, \`created_at\`),
+      KEY \`idx_records_table_id\` (\`table_id\`, \`id\`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
+
+  // Ensure performance indexes exist on existing tables
+  await addIndexIfNotExists(pool, 'df_records', 'idx_records_table_created', '(`table_id`, `created_at`)');
+  await addIndexIfNotExists(pool, 'df_records', 'idx_records_table_id', '(`table_id`, `id`)');
 
   // Create df_settings
   await pool.query(`
@@ -474,7 +499,10 @@ export async function getMySQLStatus(): Promise<MySQLStatus> {
 // DATA CRUD & SYNC OPERATIONS FOR PROJECTS, TABLES, RECORDS
 // -------------------------------------------------------------------
 
-export async function loadDataFromMySQL(): Promise<{
+export async function loadDataFromMySQL(options?: {
+  includeRecords?: boolean;
+  recordLimit?: number;
+}): Promise<{
   projects: DatabaseProject[];
   tables: DatabaseTable[];
   records: DatabaseRecord[];
@@ -485,7 +513,20 @@ export async function loadDataFromMySQL(): Promise<{
 
   const [projRows]: any = await currentPool.query('SELECT * FROM df_projects ORDER BY created_at ASC');
   const [tblRows]: any = await currentPool.query('SELECT * FROM df_tables ORDER BY created_at ASC');
-  const [recRows]: any = await currentPool.query('SELECT * FROM df_records ORDER BY created_at ASC');
+  
+  let recRows: any[] = [];
+  if (options?.includeRecords) {
+    if (options.recordLimit && options.recordLimit > 0) {
+      const [limitedRecRows]: any = await currentPool.query(
+        'SELECT * FROM df_records ORDER BY created_at DESC LIMIT ?',
+        [options.recordLimit]
+      );
+      recRows = limitedRecRows;
+    } else {
+      const [allRecRows]: any = await currentPool.query('SELECT * FROM df_records ORDER BY created_at ASC');
+      recRows = allRecRows;
+    }
+  }
 
   const loadedProjects: DatabaseProject[] = projRows.map((r: any) => ({
     id: r.id,
@@ -713,6 +754,167 @@ export async function mysqlDeleteRecord(tableId: string, recordId: string | numb
   } catch (err) {
     console.error('[MySQL] Error deleting record:', err);
   }
+}
+
+export async function getNextRecordIdFromMySQL(tableId: string): Promise<number> {
+  if (!currentPool) return 1;
+  try {
+    const [rows]: any = await currentPool.query(
+      'SELECT MAX(CAST(id AS UNSIGNED)) AS maxId FROM df_records WHERE table_id = ?',
+      [tableId]
+    );
+    const max = Number(rows[0]?.maxId) || 0;
+    return max + 1;
+  } catch (err) {
+    console.error('[MySQL] Error finding next record id:', err);
+    return Date.now();
+  }
+}
+
+export async function countTableRecordsInMySQL(tableId: string): Promise<number> {
+  if (!currentPool) return 0;
+  try {
+    const [rows]: any = await currentPool.query(
+      'SELECT COUNT(*) AS total FROM df_records WHERE table_id = ?',
+      [tableId]
+    );
+    return Number(rows[0]?.total) || 0;
+  } catch (err) {
+    console.error('[MySQL] Error counting records:', err);
+    return 0;
+  }
+}
+
+export async function getPaginatedRecordsFromMySQL(
+  tableId: string,
+  options: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    sort?: string;
+    order?: 'asc' | 'desc';
+    filters?: Record<string, any>;
+  }
+): Promise<{
+  records: DatabaseRecord[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}> {
+  if (!currentPool) {
+    throw new Error('MySQL connection pool tidak aktif');
+  }
+
+  const page = Math.max(1, Number(options.page) || 1);
+  const limit = Math.min(500, Math.max(1, Number(options.limit) || 25));
+  const offset = (page - 1) * limit;
+  const sortCol = options.sort || 'id';
+  const orderDir = options.order === 'desc' ? 'DESC' : 'ASC';
+
+  const whereClauses: string[] = ['table_id = ?'];
+  const queryParams: any[] = [tableId];
+
+  if (options.search && options.search.trim()) {
+    const q = `%${options.search.trim()}%`;
+    whereClauses.push('(id LIKE ? OR data LIKE ?)');
+    queryParams.push(q, q);
+  }
+
+  if (options.filters && typeof options.filters === 'object') {
+    for (const [key, rawVal] of Object.entries(options.filters)) {
+      if (rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '') {
+        const cleanKey = key.replace(/[^a-zA-Z0-9_]/g, '');
+        if (!cleanKey) continue;
+
+        const valStr = String(rawVal).trim();
+
+        if (cleanKey === 'id') {
+          whereClauses.push('id = ?');
+          queryParams.push(valStr);
+        } else if (valStr.toLowerCase() === 'true' || valStr.toLowerCase() === 'false') {
+          const isTrue = valStr.toLowerCase() === 'true';
+          whereClauses.push(
+            `(JSON_UNQUOTE(JSON_EXTRACT(data, '$.${cleanKey}')) = ? OR JSON_EXTRACT(data, '$.${cleanKey}') = ${isTrue ? 'true' : 'false'})`
+          );
+          queryParams.push(valStr);
+        } else if (valStr.includes(',') && !valStr.startsWith('"') && !valStr.startsWith('{')) {
+          // Multi-value filter support e.g. status=Aktif,Cuti
+          const values = valStr.split(',').map(v => v.trim()).filter(Boolean);
+          if (values.length > 0) {
+            const placeholders = values.map(() => '?').join(', ');
+            whereClauses.push(`JSON_UNQUOTE(JSON_EXTRACT(data, '$.${cleanKey}')) IN (${placeholders})`);
+            queryParams.push(...values);
+          }
+        } else {
+          whereClauses.push(`JSON_UNQUOTE(JSON_EXTRACT(data, '$.${cleanKey}')) = ?`);
+          queryParams.push(valStr);
+        }
+      }
+    }
+  }
+
+  const whereSql = whereClauses.join(' AND ');
+
+  const [countRows]: any = await currentPool.query(
+    `SELECT COUNT(*) AS total FROM df_records WHERE ${whereSql}`,
+    queryParams
+  );
+  const total = Number(countRows[0]?.total) || 0;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  let orderBySql = 'id ASC';
+  if (sortCol === 'id') {
+    orderBySql = `CAST(id AS UNSIGNED) ${orderDir}, id ${orderDir}`;
+  } else if (sortCol === 'created_at' || sortCol === '_created_at') {
+    orderBySql = `created_at ${orderDir}`;
+  } else if (sortCol === 'updated_at' || sortCol === '_updated_at') {
+    orderBySql = `updated_at ${orderDir}`;
+  } else {
+    // Clean column name to prevent SQL injection
+    const cleanCol = sortCol.replace(/[^a-zA-Z0-9_]/g, '');
+    if (cleanCol) {
+      orderBySql = `JSON_UNQUOTE(JSON_EXTRACT(data, '$.${cleanCol}')) ${orderDir}`;
+    }
+  }
+
+  const [rows]: any = await currentPool.query(
+    `SELECT id, table_id, project_id, data, created_at, updated_at 
+     FROM df_records 
+     WHERE ${whereSql} 
+     ORDER BY ${orderBySql} 
+     LIMIT ? OFFSET ?`,
+    [...queryParams, limit, offset]
+  );
+
+  const records: DatabaseRecord[] = rows.map((r: any) => {
+    let data = {};
+    try {
+      data = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+    } catch (_) {
+      data = {};
+    }
+    return {
+      id: isNaN(Number(r.id)) ? r.id : Number(r.id),
+      tableId: r.table_id,
+      projectId: r.project_id,
+      data,
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString()
+    };
+  });
+
+  return {
+    records,
+    total,
+    page,
+    limit,
+    totalPages,
+    hasNextPage: page < totalPages,
+    hasPrevPage: page > 1
+  };
 }
 
 // -------------------------------------------------------------------
