@@ -17,6 +17,7 @@ interface TableSchemaModalProps {
   editingTable: DatabaseTable | null;
   language: Language;
   onDeleteTable?: (table: DatabaseTable) => void;
+  isPageView?: boolean;
 }
 
 export function TableSchemaModal({
@@ -25,7 +26,8 @@ export function TableSchemaModal({
   onSave,
   editingTable,
   language,
-  onDeleteTable
+  onDeleteTable,
+  isPageView = true
 }: TableSchemaModalProps) {
   const t = translations[language];
 
@@ -220,10 +222,10 @@ export function TableSchemaModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col sm:items-center sm:justify-center bg-black/75 backdrop-blur-xs p-0 sm:p-4 animate-fadeIn">
-      <div className="bg-white dark:bg-slate-900 border-0 sm:border border-slate-200 dark:border-slate-800 w-full max-w-2xl h-full sm:h-auto sm:max-h-[90vh] rounded-none sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden relative">
-        {/* Header (Sticky at top, includes safe-area-inset-top for mobile) */}
-        <div className="sticky top-0 z-20 shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 dark:border-slate-800 pt-[max(0.75rem,env(safe-area-inset-top))]">
+    <div className={isPageView ? "max-w-4xl mx-auto space-y-6 pb-32 animate-fadeIn" : "fixed inset-0 z-[9999] bg-slate-50 dark:bg-slate-950 flex flex-col overflow-y-auto animate-fadeIn p-4"}>
+      <div className={isPageView ? "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden" : "bg-white dark:bg-slate-900 w-full max-w-4xl mx-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden my-auto"}>
+        {/* Header */}
+        <div className="bg-slate-50/70 dark:bg-slate-950/70 flex items-center justify-between px-4 sm:px-6 py-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="p-2 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-xl shrink-0">
               <TableIcon className="w-5 h-5" />
@@ -250,8 +252,7 @@ export function TableSchemaModal({
         </div>
 
         {/* Form Body Container */}
-        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 overscroll-contain">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6">
           {errorMessage && (
             <div className="p-3 text-xs bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 rounded-xl flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -595,10 +596,9 @@ export function TableSchemaModal({
               </button>
             </div>
           )}
-          </div>
 
-          {/* Sticky Pinned Footer with Action buttons (Never hidden or covered by mobile nav) */}
-          <div className="sticky bottom-0 z-20 shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-lg">
+          {/* Action buttons */}
+          <div className="pt-6 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3">
             <button
               type="button"
               onClick={onClose}

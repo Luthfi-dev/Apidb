@@ -31,9 +31,7 @@ import {
   FolderTree
 } from 'lucide-react';
 import { Language, translations } from '../translations';
-import { RecordModal } from './RecordModal';
 import { RecordDetailModal } from './RecordDetailModal';
-import { TableSchemaModal } from './TableSchemaModal';
 import { RefreshTokenModal } from './RefreshTokenModal';
 import { ConfirmModal } from './ConfirmModal';
 
@@ -55,6 +53,8 @@ interface DatabaseTableViewProps {
   onOpenPlayground: () => void;
   onProjectTokenRefreshed?: (project: DatabaseProject) => void;
   onTableTokenRefreshed?: (table: DatabaseTable) => void;
+  onOpenTableSchema: (table?: DatabaseTable | null) => void;
+  onOpenRecordForm: (record?: DatabaseRecord | null) => void;
 }
 
 export function DatabaseTableView({
@@ -73,16 +73,14 @@ export function DatabaseTableView({
   onDeleteTable,
   onOpenPlayground,
   onProjectTokenRefreshed,
-  onTableTokenRefreshed
+  onTableTokenRefreshed,
+  onOpenTableSchema,
+  onOpenRecordForm
 }: DatabaseTableViewProps) {
   const t = translations[language];
 
   // Modals state
-  const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
-  const [editingRecord, setEditingRecord] = useState<DatabaseRecord | null>(null);
   const [inspectingRecord, setInspectingRecord] = useState<DatabaseRecord | null>(null);
-  const [isTableModalOpen, setIsTableModalOpen] = useState(false);
-  const [editingTableSchema, setEditingTableSchema] = useState<DatabaseTable | null>(null);
   const [isRefreshTokenOpen, setIsRefreshTokenOpen] = useState(false);
 
   // Server-side paginated data state
@@ -540,10 +538,7 @@ export function DatabaseTableView({
             })}
 
             <button
-              onClick={() => {
-                setEditingTableSchema(null);
-                setIsTableModalOpen(true);
-              }}
+              onClick={() => onOpenTableSchema(null)}
               className="px-3 py-2 border border-dashed border-slate-300 dark:border-slate-700 hover:border-indigo-500 text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -555,10 +550,7 @@ export function DatabaseTableView({
           {activeTable && (
             <div className="flex items-center gap-1 shrink-0 ml-auto">
               <button
-                onClick={() => {
-                  setEditingTableSchema(activeTable);
-                  setIsTableModalOpen(true);
-                }}
+                onClick={() => onOpenTableSchema(activeTable)}
                 className="px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs whitespace-nowrap"
                 title="Atur kolom dan skema tabel"
               >
@@ -587,10 +579,7 @@ export function DatabaseTableView({
             {/* Action buttons */}
             <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={() => {
-                  setEditingRecord(null);
-                  setIsRecordModalOpen(true);
-                }}
+                onClick={() => onOpenRecordForm(null)}
                 className="flex-1 sm:flex-initial px-4 py-2.5 sm:py-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
               >
                 <Plus className="w-4 h-4" />
@@ -598,10 +587,7 @@ export function DatabaseTableView({
               </button>
 
               <button
-                onClick={() => {
-                  setEditingTableSchema(activeTable);
-                  setIsTableModalOpen(true);
-                }}
+                onClick={() => onOpenTableSchema(activeTable)}
                 className="px-3 py-2.5 sm:py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
                 title="Atur kolom dan skema tabel"
               >
@@ -926,10 +912,7 @@ export function DatabaseTableView({
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            setEditingRecord(record);
-                            setIsRecordModalOpen(true);
-                          }}
+                          onClick={() => onOpenRecordForm(record)}
                           className="p-1.5 text-slate-500 hover:text-emerald-600 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800"
                           title="Edit"
                         >
@@ -1116,10 +1099,7 @@ export function DatabaseTableView({
                             {/* Edit Button */}
                             <button
                               type="button"
-                              onClick={() => {
-                                setEditingRecord(record);
-                                setIsRecordModalOpen(true);
-                              }}
+                              onClick={() => onOpenRecordForm(record)}
                               className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors"
                               title="Edit Record"
                             >
@@ -1338,28 +1318,6 @@ export function DatabaseTableView({
         </div>
       )}
 
-      {/* Record Add/Edit Modal */}
-      {activeTable && (
-        <RecordModal
-          isOpen={isRecordModalOpen}
-          onClose={() => {
-            setIsRecordModalOpen(false);
-            setEditingRecord(null);
-          }}
-          table={activeTable}
-          editingRecord={editingRecord}
-          language={language}
-          onSave={async (formData) => {
-            if (editingRecord) {
-              await onUpdateRecord(editingRecord.id, formData);
-            } else {
-              await onAddRecord(formData);
-            }
-            await fetchTableRecords();
-          }}
-        />
-      )}
-
       {/* Record Inspect / GET Modal */}
       {activeTable && (
         <RecordDetailModal
@@ -1371,33 +1329,13 @@ export function DatabaseTableView({
           language={language}
           onEdit={() => {
             if (inspectingRecord) {
-              setEditingRecord(inspectingRecord);
+              const rec = inspectingRecord;
               setInspectingRecord(null);
-              setIsRecordModalOpen(true);
+              onOpenRecordForm(rec);
             }
           }}
         />
       )}
-
-      {/* Table Schema Modal */}
-      <TableSchemaModal
-        isOpen={isTableModalOpen}
-        onClose={() => {
-          setIsTableModalOpen(false);
-          setEditingTableSchema(null);
-        }}
-        editingTable={editingTableSchema}
-        language={language}
-        onDeleteTable={promptDeleteTable}
-        onSave={async (tableData) => {
-          if (editingTableSchema) {
-            await onUpdateTable(editingTableSchema.id, tableData);
-          } else {
-            await onCreateTable(tableData);
-          }
-          await fetchTableRecords();
-        }}
-      />
 
       {/* Refresh Token Modal */}
       <RefreshTokenModal

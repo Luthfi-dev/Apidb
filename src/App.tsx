@@ -30,6 +30,8 @@ const ApiPlaygroundModal = lazy(() => import('./components/ApiPlaygroundModal').
 const DatabaseProjectModal = lazy(() => import('./components/DatabaseProjectModal').then(m => ({ default: m.DatabaseProjectModal })));
 const AuthModal = lazy(() => import('./components/AuthModal').then(m => ({ default: m.AuthModal })));
 const ProfileModal = lazy(() => import('./components/ProfileModal').then(m => ({ default: m.ProfileModal })));
+const TableSchemaModal = lazy(() => import('./components/TableSchemaModal').then(m => ({ default: m.TableSchemaModal })));
+const RecordModal = lazy(() => import('./components/RecordModal').then(m => ({ default: m.RecordModal })));
 
 const ComponentLoader = () => (
   <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3 text-slate-400">
@@ -83,9 +85,11 @@ export function App() {
     return 'light';
   });
 
-  // Modals
+  // Modals & Forms
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isPlaygroundOpen, setIsPlaygroundOpen] = useState(false);
+  const [editingTableSchema, setEditingTableSchema] = useState<DatabaseTable | null>(null);
+  const [editingRecord, setEditingRecord] = useState<DatabaseRecord | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Helper for auth header
@@ -653,6 +657,49 @@ export function App() {
               onOpenPlayground={() => setIsPlaygroundOpen(true)}
               onProjectTokenRefreshed={handleProjectTokenRefreshed}
               onTableTokenRefreshed={handleTableTokenRefreshed}
+              onOpenTableSchema={(table = null) => {
+                setEditingTableSchema(table);
+                setActiveNav('table-schema');
+              }}
+              onOpenRecordForm={(record = null) => {
+                setEditingRecord(record);
+                setActiveNav('record-form');
+              }}
+            />
+          ) : activeNav === 'table-schema' ? (
+            <TableSchemaModal
+              isOpen={true}
+              onClose={() => setActiveNav('tables')}
+              editingTable={editingTableSchema}
+              language={language}
+              onDeleteTable={async (t) => {
+                await handleDeleteTable(t.id);
+                setActiveNav('tables');
+              }}
+              onSave={async (tableData) => {
+                if (editingTableSchema) {
+                  await handleUpdateTable(editingTableSchema.id, tableData);
+                } else {
+                  await handleCreateTable(tableData);
+                }
+                setActiveNav('tables');
+              }}
+            />
+          ) : activeNav === 'record-form' && activeTable ? (
+            <RecordModal
+              isOpen={true}
+              onClose={() => setActiveNav('tables')}
+              table={activeTable}
+              editingRecord={editingRecord}
+              language={language}
+              onSave={async (formData) => {
+                if (editingRecord) {
+                  await handleUpdateRecord(editingRecord.id, formData);
+                } else {
+                  await handleAddRecord(formData);
+                }
+                setActiveNav('tables');
+              }}
             />
           ) : activeNav === 'sandbox' ? (
             <ApiSandboxView

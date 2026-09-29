@@ -1,7 +1,7 @@
 export type Language = 'id' | 'en';
 export type UserMode = 'simple' | 'developer';
 export type ThemeMode = 'light' | 'dark';
-export type ActiveNav = 'tables' | 'sandbox' | 'docs' | 'db-online' | 'mysql-schema' | 'users' | 'mail-settings';
+export type ActiveNav = 'tables' | 'sandbox' | 'docs' | 'db-online' | 'mysql-schema' | 'users' | 'mail-settings' | 'table-schema' | 'record-form';
 
 export type UserRole = 'superadmin' | 'admin' | 'user';
 

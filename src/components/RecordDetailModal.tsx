@@ -63,8 +63,8 @@ export function RecordDetailModal({
   -H "Accept: application/json"`;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-xs p-2.5 sm:p-4 animate-fadeIn">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh] sm:max-h-[90vh]">
+    <div className="fixed inset-0 z-[9999] bg-slate-50 dark:bg-slate-950 flex flex-col overflow-y-auto animate-fadeIn">
+      <div className="bg-white dark:bg-slate-900 border-0 w-full max-w-3xl mx-auto min-h-full sm:min-h-0 sm:my-8 sm:rounded-2xl sm:border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden relative">
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -169,7 +169,7 @@ export function RecordDetailModal({
         </div>
 
         {/* Tab Contents */}
-        <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4">
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4 pb-36 sm:pb-8">
           {viewTab === 'structured' ? (
             <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-2xs">
               <table className="w-full text-left text-xs border-collapse">
@@ -296,7 +296,7 @@ export function RecordDetailModal({
         </div>
 
         {/* Footer */}
-        <div className="px-4 sm:px-6 py-3 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs gap-2">
+        <div className="sticky bottom-0 z-30 shrink-0 px-4 sm:px-6 py-3.5 bg-slate-50/95 dark:bg-slate-950/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs gap-2 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl">
           <span className="font-mono text-slate-400 text-[10px] sm:text-[11px] truncate max-w-[200px] sm:max-w-md">
             {getUrl}
           </span>

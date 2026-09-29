@@ -65,10 +65,10 @@ export function DatabaseProjectModal({
   ];
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 sm:p-4 animate-fadeIn">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh]">
+    <div className="fixed inset-0 z-[9999] bg-slate-50 dark:bg-slate-950 flex flex-col overflow-y-auto animate-fadeIn">
+      <div className="bg-white dark:bg-slate-900 border-0 w-full max-w-xl mx-auto min-h-full sm:min-h-0 sm:my-8 sm:rounded-2xl sm:border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden relative">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="p-2 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-xl shrink-0">
               <Database className="w-5 h-5" />
@@ -93,7 +93,8 @@ export function DatabaseProjectModal({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto">
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 overscroll-contain pb-36 sm:pb-8">
           {error && (
             <div className="p-3 text-xs bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 rounded-xl">
               {error}
@@ -143,13 +144,14 @@ export function DatabaseProjectModal({
               ))}
             </div>
           </div>
+          </div>
 
           {/* Action buttons */}
-          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3">
+          <div className="sticky bottom-0 z-30 shrink-0 px-4 sm:px-6 py-3.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition-colors"
+              className="px-4 py-2.5 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition-colors"
             >
               {t.cancel}
             </button>
