@@ -1,3 +1,8 @@
+// Enforce single-thread execution for Rust-based tools (Rayon / Tailwind v4 / LightningCSS)
+// Critical for shared hosting (cPanel / CloudLinux / CageFS) where thread count (nproc) is strictly restricted (EAGAIN 11).
+process.env.RAYON_NUM_THREADS = process.env.RAYON_NUM_THREADS || '1';
+process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '1';
+
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';

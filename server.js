@@ -1230,10 +1230,14 @@ async function initMySQLTables(pool) {
       KEY \`idx_records_project\` (\`project_id\`),
       KEY \`idx_records_table\` (\`table_id\`),
       KEY \`idx_records_table_created\` (\`table_id\`, \`created_at\`),
+      KEY \`idx_records_table_updated\` (\`table_id\`, \`updated_at\`),
+      KEY \`idx_records_created\` (\`created_at\`),
       KEY \`idx_records_table_id\` (\`table_id\`, \`id\`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
   await addIndexIfNotExists(pool, "df_records", "idx_records_table_created", "(`table_id`, `created_at`)");
+  await addIndexIfNotExists(pool, "df_records", "idx_records_table_updated", "(`table_id`, `updated_at`)");
+  await addIndexIfNotExists(pool, "df_records", "idx_records_created", "(`created_at`)");
   await addIndexIfNotExists(pool, "df_records", "idx_records_table_id", "(`table_id`, `id`)");
   await pool.query(`
     CREATE TABLE IF NOT EXISTS \`df_settings\` (
@@ -2003,6 +2007,49 @@ async function getTableDataPaginated(tableName, page = 1, limit = 10) {
     return { columns: [], rows: [], total: 0 };
   }
 }
+async function optimizePerformanceIndexes() {
+  if (!currentPool) {
+    return {
+      success: false,
+      applied: [],
+      alreadyExisted: [],
+      message: "Database MySQL online belum terhubung. Sambungkan koneksi database terlebih dahulu.",
+      error: "Database MySQL online belum terhubung. Sambungkan koneksi database terlebih dahulu."
+    };
+  }
+  const indexesToVerify = [
+    { table: "df_records", name: "idx_records_table_created", def: "(`table_id`, `created_at`)" },
+    { table: "df_records", name: "idx_records_table_updated", def: "(`table_id`, `updated_at`)" },
+    { table: "df_records", name: "idx_records_created", def: "(`created_at`)" },
+    { table: "df_records", name: "idx_records_table_id", def: "(`table_id`, `id`)" },
+    { table: "df_tables", name: "idx_project_slug", def: "(`project_id`, `slug`)" },
+    { table: "df_projects", name: "idx_project_owner", def: "(`owner_id`)" }
+  ];
+  const applied = [];
+  const alreadyExisted = [];
+  for (const item of indexesToVerify) {
+    try {
+      const [indexes] = await currentPool.query(
+        `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_NAME = ? AND INDEX_NAME = ? AND TABLE_SCHEMA = DATABASE()`,
+        [item.table, item.name]
+      );
+      if (indexes.length === 0) {
+        await currentPool.query(`ALTER TABLE \`${item.table}\` ADD INDEX \`${item.name}\` ${item.def}`);
+        applied.push(`${item.table}.${item.name}`);
+      } else {
+        alreadyExisted.push(`${item.table}.${item.name}`);
+      }
+    } catch (err) {
+      console.error(`[MySQL] Error optimizing index ${item.name}:`, err);
+    }
+  }
+  return {
+    success: true,
+    applied,
+    alreadyExisted,
+    message: applied.length > 0 ? `Berhasil menambahkan ${applied.length} indeks komposit baru ke database MySQL: ${applied.join(", ")}.` : `Semua indeks komposit performa tinggi (${alreadyExisted.length} indeks) sudah aktif optimal di database MySQL.`
+  };
+}
 
 // server.ts
 var __filename = fileURLToPath(import.meta.url);
@@ -2519,6 +2566,14 @@ async function startServer() {
       res.json({ success: true, ...data });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message, columns: [], rows: [], total: 0 });
+    }
+  });
+  app.post("/api/db/optimize-indexes", requireSuperadmin, async (req, res) => {
+    try {
+      const result = await optimizePerformanceIndexes();
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
   app.post("/api/auth/register", async (req, res) => {

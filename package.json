@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build:client": "vite build",
+    "build:client": "node scripts/build.js --client-only",
     "build:server": "node scripts/build-server.js",
-    "build": "vite build && node scripts/build-server.js",
+    "build": "node scripts/build.js",
+    "build:fallback": "RAYON_NUM_THREADS=1 UV_THREADPOOL_SIZE=1 vite build && node scripts/build-server.js",
     "start": "node server.js",
     "start:ts": "tsx server.ts",
     "preview": "vite preview",
