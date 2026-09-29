@@ -22,14 +22,17 @@ async function runBuild() {
   const clientOnly = args.includes('--client-only');
   const serverOnly = args.includes('--server-only');
 
-  // 1. Build Client with Vite Programmatically (No spawnSync shell hanging)
+  // 1. Build Client with Vite Programmatically with explicit info logging
   if (!serverOnly) {
     console.log('[1/2] Menjalankan Vite Build untuk Frontend (dist/)...');
+    console.log('[1/2] Mengompilasi modul, komponen, dan Tailwind CSS (proses memakan waktu 10-30 detik)...');
     try {
       await build({
         root: rootDir,
         configFile: path.resolve(rootDir, 'vite.config.ts'),
-        mode: 'production'
+        mode: 'production',
+        logLevel: 'info',
+        clearScreen: false,
       });
       console.log('✓ [1/2] Frontend (dist/) berhasil dibuat!\n');
     } catch (err) {
