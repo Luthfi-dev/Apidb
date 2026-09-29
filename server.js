@@ -1,3 +1,8 @@
+// Production Server Bundle - DataForge API Studio
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+
+
 // server.ts
 import "dotenv/config";
 import express from "express";
@@ -1083,9 +1088,11 @@ function parseConnectionOptions(cfg) {
       database: url.pathname.replace(/^\//, "") || "dataforge_db",
       ssl: cfg.ssl ? { rejectUnauthorized: false } : void 0,
       waitForConnections: true,
-      connectionLimit: 10,
+      connectionLimit: 25,
       queueLimit: 0,
-      connectTimeout: 8e3
+      connectTimeout: 1e4,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 1e4
     };
   }
   return {
@@ -1096,9 +1103,11 @@ function parseConnectionOptions(cfg) {
     database: cfg.database || "dataforge_db",
     ssl: cfg.ssl ? { rejectUnauthorized: false } : void 0,
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: 25,
     queueLimit: 0,
-    connectTimeout: 8e3
+    connectTimeout: 1e4,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 1e4
   };
 }
 async function testConnection(cfg) {
@@ -1139,6 +1148,18 @@ async function addColumnIfNotExists(pool, table, column, colDef) {
     );
     if (cols.length === 0) {
       await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${colDef}`);
+    }
+  } catch (err) {
+  }
+}
+async function addIndexIfNotExists(pool, table, indexName, indexDef) {
+  try {
+    const [indexes] = await pool.query(
+      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_NAME = ? AND INDEX_NAME = ? AND TABLE_SCHEMA = DATABASE()`,
+      [table, indexName]
+    );
+    if (indexes.length === 0) {
+      await pool.query(`ALTER TABLE \`${table}\` ADD INDEX \`${indexName}\` ${indexDef}`);
     }
   } catch (err) {
   }
@@ -1187,9 +1208,13 @@ async function initMySQLTables(pool) {
       \`updated_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (\`table_id\`, \`id\`),
       KEY \`idx_records_project\` (\`project_id\`),
-      KEY \`idx_records_table\` (\`table_id\`)
+      KEY \`idx_records_table\` (\`table_id\`),
+      KEY \`idx_records_table_created\` (\`table_id\`, \`created_at\`),
+      KEY \`idx_records_table_id\` (\`table_id\`, \`id\`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
+  await addIndexIfNotExists(pool, "df_records", "idx_records_table_created", "(`table_id`, `created_at`)");
+  await addIndexIfNotExists(pool, "df_records", "idx_records_table_id", "(`table_id`, `id`)");
   await pool.query(`
     CREATE TABLE IF NOT EXISTS \`df_settings\` (
       \`key\` VARCHAR(64) NOT NULL,
@@ -1376,13 +1401,25 @@ async function getMySQLStatus() {
     };
   }
 }
-async function loadDataFromMySQL() {
+async function loadDataFromMySQL(options) {
   if (!currentPool) {
     throw new Error("MySQL connection pool tidak aktif");
   }
   const [projRows] = await currentPool.query("SELECT * FROM df_projects ORDER BY created_at ASC");
   const [tblRows] = await currentPool.query("SELECT * FROM df_tables ORDER BY created_at ASC");
-  const [recRows] = await currentPool.query("SELECT * FROM df_records ORDER BY created_at ASC");
+  let recRows = [];
+  if (options?.includeRecords) {
+    if (options.recordLimit && options.recordLimit > 0) {
+      const [limitedRecRows] = await currentPool.query(
+        "SELECT * FROM df_records ORDER BY created_at DESC LIMIT ?",
+        [options.recordLimit]
+      );
+      recRows = limitedRecRows;
+    } else {
+      const [allRecRows] = await currentPool.query("SELECT * FROM df_records ORDER BY created_at ASC");
+      recRows = allRecRows;
+    }
+  }
   const loadedProjects = projRows.map((r) => ({
     id: r.id,
     ownerId: r.owner_id || void 0,
@@ -1585,6 +1622,132 @@ async function mysqlDeleteRecord(tableId, recordId) {
   } catch (err) {
     console.error("[MySQL] Error deleting record:", err);
   }
+}
+async function getNextRecordIdFromMySQL(tableId) {
+  if (!currentPool) return 1;
+  try {
+    const [rows] = await currentPool.query(
+      "SELECT MAX(CAST(id AS UNSIGNED)) AS maxId FROM df_records WHERE table_id = ?",
+      [tableId]
+    );
+    const max = Number(rows[0]?.maxId) || 0;
+    return max + 1;
+  } catch (err) {
+    console.error("[MySQL] Error finding next record id:", err);
+    return Date.now();
+  }
+}
+async function countTableRecordsInMySQL(tableId) {
+  if (!currentPool) return 0;
+  try {
+    const [rows] = await currentPool.query(
+      "SELECT COUNT(*) AS total FROM df_records WHERE table_id = ?",
+      [tableId]
+    );
+    return Number(rows[0]?.total) || 0;
+  } catch (err) {
+    console.error("[MySQL] Error counting records:", err);
+    return 0;
+  }
+}
+async function getPaginatedRecordsFromMySQL(tableId, options) {
+  if (!currentPool) {
+    throw new Error("MySQL connection pool tidak aktif");
+  }
+  const page = Math.max(1, Number(options.page) || 1);
+  const limit = Math.min(500, Math.max(1, Number(options.limit) || 25));
+  const offset = (page - 1) * limit;
+  const sortCol = options.sort || "id";
+  const orderDir = options.order === "desc" ? "DESC" : "ASC";
+  const whereClauses = ["table_id = ?"];
+  const queryParams = [tableId];
+  if (options.search && options.search.trim()) {
+    const q = `%${options.search.trim()}%`;
+    whereClauses.push("(id LIKE ? OR data LIKE ?)");
+    queryParams.push(q, q);
+  }
+  if (options.filters && typeof options.filters === "object") {
+    for (const [key, rawVal] of Object.entries(options.filters)) {
+      if (rawVal !== void 0 && rawVal !== null && String(rawVal).trim() !== "") {
+        const cleanKey = key.replace(/[^a-zA-Z0-9_]/g, "");
+        if (!cleanKey) continue;
+        const valStr = String(rawVal).trim();
+        if (cleanKey === "id") {
+          whereClauses.push("id = ?");
+          queryParams.push(valStr);
+        } else if (valStr.toLowerCase() === "true" || valStr.toLowerCase() === "false") {
+          const isTrue = valStr.toLowerCase() === "true";
+          whereClauses.push(
+            `(JSON_UNQUOTE(JSON_EXTRACT(data, '$.${cleanKey}')) = ? OR JSON_EXTRACT(data, '$.${cleanKey}') = ${isTrue ? "true" : "false"})`
+          );
+          queryParams.push(valStr);
+        } else if (valStr.includes(",") && !valStr.startsWith('"') && !valStr.startsWith("{")) {
+          const values = valStr.split(",").map((v) => v.trim()).filter(Boolean);
+          if (values.length > 0) {
+            const placeholders = values.map(() => "?").join(", ");
+            whereClauses.push(`JSON_UNQUOTE(JSON_EXTRACT(data, '$.${cleanKey}')) IN (${placeholders})`);
+            queryParams.push(...values);
+          }
+        } else {
+          whereClauses.push(`JSON_UNQUOTE(JSON_EXTRACT(data, '$.${cleanKey}')) = ?`);
+          queryParams.push(valStr);
+        }
+      }
+    }
+  }
+  const whereSql = whereClauses.join(" AND ");
+  const [countRows] = await currentPool.query(
+    `SELECT COUNT(*) AS total FROM df_records WHERE ${whereSql}`,
+    queryParams
+  );
+  const total = Number(countRows[0]?.total) || 0;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  let orderBySql = "id ASC";
+  if (sortCol === "id") {
+    orderBySql = `CAST(id AS UNSIGNED) ${orderDir}, id ${orderDir}`;
+  } else if (sortCol === "created_at" || sortCol === "_created_at") {
+    orderBySql = `created_at ${orderDir}`;
+  } else if (sortCol === "updated_at" || sortCol === "_updated_at") {
+    orderBySql = `updated_at ${orderDir}`;
+  } else {
+    const cleanCol = sortCol.replace(/[^a-zA-Z0-9_]/g, "");
+    if (cleanCol) {
+      orderBySql = `JSON_UNQUOTE(JSON_EXTRACT(data, '$.${cleanCol}')) ${orderDir}`;
+    }
+  }
+  const [rows] = await currentPool.query(
+    `SELECT id, table_id, project_id, data, created_at, updated_at 
+     FROM df_records 
+     WHERE ${whereSql} 
+     ORDER BY ${orderBySql} 
+     LIMIT ? OFFSET ?`,
+    [...queryParams, limit, offset]
+  );
+  const records2 = rows.map((r) => {
+    let data = {};
+    try {
+      data = typeof r.data === "string" ? JSON.parse(r.data) : r.data;
+    } catch (_) {
+      data = {};
+    }
+    return {
+      id: isNaN(Number(r.id)) ? r.id : Number(r.id),
+      tableId: r.table_id,
+      projectId: r.project_id,
+      data,
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : (/* @__PURE__ */ new Date()).toISOString(),
+      updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : (/* @__PURE__ */ new Date()).toISOString()
+    };
+  });
+  return {
+    records: records2,
+    total,
+    page,
+    limit,
+    totalPages,
+    hasNextPage: page < totalPages,
+    hasPrevPage: page > 1
+  };
 }
 async function loadUsersFromMySQL() {
   if (!currentPool) return [];
@@ -1831,6 +1994,12 @@ async function getTableDataPaginated(tableName, page = 1, limit = 10) {
 // server.ts
 var __filename = fileURLToPath(import.meta.url);
 var __dirname = path3.dirname(__filename);
+process.on("uncaughtException", (err) => {
+  console.error("[Server Guard] Uncaught Exception:", err);
+});
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[Server Guard] Unhandled Rejection at:", promise, "reason:", reason);
+});
 var DATA_FILE = path3.resolve(process.cwd(), "data.json");
 var projects = [];
 var tables = [];
@@ -2077,18 +2246,46 @@ function loadDataFromFile() {
   }
   seedDefaultDatabase();
 }
-function saveDataToFile() {
+var saveFileDebounceTimer = null;
+var isFileSaveRunning = false;
+var pendingFileSave = false;
+function saveDataToFile(immediate = false) {
+  if (immediate) {
+    if (saveFileDebounceTimer) clearTimeout(saveFileDebounceTimer);
+    executeSaveDataToFile();
+    return;
+  }
+  if (saveFileDebounceTimer) {
+    clearTimeout(saveFileDebounceTimer);
+  }
+  saveFileDebounceTimer = setTimeout(() => {
+    executeSaveDataToFile();
+  }, 250);
+}
+async function executeSaveDataToFile() {
+  if (isFileSaveRunning) {
+    pendingFileSave = true;
+    return;
+  }
+  isFileSaveRunning = true;
   try {
     const data = {
       projects,
       tables,
-      records,
+      records: isMySQLConnected() ? [] : records,
       users: getAllUsers(),
       nextIdCounters
     };
-    fs3.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
+    const payload = JSON.stringify(data);
+    await fs3.promises.writeFile(DATA_FILE, payload, "utf-8");
   } catch (err) {
     console.error("[Database] Failed to write data.json:", err);
+  } finally {
+    isFileSaveRunning = false;
+    if (pendingFileSave) {
+      pendingFileSave = false;
+      executeSaveDataToFile();
+    }
   }
 }
 async function startServer() {
@@ -2103,12 +2300,11 @@ async function startServer() {
       if (res.success) {
         console.log("[MySQL] Berhasil terhubung ke database online!");
         try {
-          const mysqlData = await loadDataFromMySQL();
+          const mysqlData = await loadDataFromMySQL({ includeRecords: false });
           if (mysqlData.projects.length > 0) {
             projects = mysqlData.projects;
             tables = mysqlData.tables;
-            records = mysqlData.records;
-            console.log(`[MySQL] Memuat ${projects.length} project, ${tables.length} tabel, ${records.length} records dari MySQL.`);
+            console.log(`[MySQL] Memuat ${projects.length} project, ${tables.length} tabel dari MySQL. Data record diakses secara efisien melalui query paginasi SQL.`);
           } else {
             console.log("[MySQL] Database MySQL kosong. Mengunggah data lokal ke MySQL...");
             await syncAllToMySQL(projects, tables, records);
@@ -2135,7 +2331,8 @@ async function startServer() {
     console.log("[Database] Tidak ada konfigurasi MySQL di .env. Menggunakan mode penyimpanan lokal (data.json).");
   }
   startAutoReconnectLoop();
-  app.use(express.json());
+  app.use(express.json({ limit: "10mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "10mb" }));
   app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
@@ -2861,89 +3058,197 @@ Waktu: ${(/* @__PURE__ */ new Date()).toLocaleString("id-ID")}`;
     }
     return null;
   }
-  app.get("/api/projects/:projectId/tables/:tableId/records", (req, res) => {
-    const { projectId, tableId } = req.params;
-    const { search, sort, order } = req.query;
-    let tableRecords = records.filter((r) => r.projectId === projectId && r.tableId === tableId);
-    if (search && typeof search === "string") {
-      const q = search.toLowerCase();
-      tableRecords = tableRecords.filter((r) => {
-        if (String(r.id).toLowerCase().includes(q)) return true;
-        return Object.values(r.data).some((val) => String(val || "").toLowerCase().includes(q));
+  app.get("/api/projects/:projectId/tables/:tableId/records", async (req, res) => {
+    try {
+      const { projectId, tableId } = req.params;
+      const { search, sort, order, page, limit, all, token, api_key, key, _, t, ...fieldFilters } = req.query;
+      const isAllRequested = all === "true" || limit === "all";
+      const pageNum = Math.max(1, parseInt(String(page || "1"), 10) || 1);
+      const limitNum = isAllRequested ? 500 : Math.min(250, Math.max(1, parseInt(String(limit || "25"), 10) || 25));
+      if (isMySQLConnected()) {
+        try {
+          const result = await getPaginatedRecordsFromMySQL(tableId, {
+            page: pageNum,
+            limit: limitNum,
+            search: search ? String(search) : void 0,
+            sort: sort ? String(sort) : "id",
+            order: order === "desc" ? "desc" : "asc",
+            filters: fieldFilters
+          });
+          return res.json({
+            success: true,
+            records: result.records,
+            pagination: {
+              page: result.page,
+              limit: result.limit,
+              total: result.total,
+              totalPages: result.totalPages,
+              hasNextPage: result.hasNextPage,
+              hasPrevPage: result.hasPrevPage
+            }
+          });
+        } catch (dbErr) {
+          console.warn("[Records] MySQL query failed, falling back to in-memory:", dbErr);
+        }
+      }
+      let tableRecords = records.filter((r) => r.projectId === projectId && r.tableId === tableId);
+      if (search && typeof search === "string") {
+        const q = search.toLowerCase();
+        tableRecords = tableRecords.filter((r) => {
+          if (String(r.id).toLowerCase().includes(q)) return true;
+          return Object.values(r.data).some((val) => String(val || "").toLowerCase().includes(q));
+        });
+      }
+      Object.entries(fieldFilters).forEach(([filterKey, filterVal]) => {
+        if (filterVal !== void 0 && filterVal !== null && String(filterVal).trim() !== "") {
+          const valStr = String(filterVal).trim().toLowerCase();
+          tableRecords = tableRecords.filter((r) => {
+            const rawVal = filterKey === "id" ? r.id : r.data[filterKey];
+            if (rawVal === void 0 || rawVal === null) return false;
+            const rowValStr = String(rawVal).toLowerCase();
+            if (valStr.includes(",") && !valStr.startsWith('"')) {
+              const multi = valStr.split(",").map((s) => s.trim()).filter(Boolean);
+              return multi.includes(rowValStr);
+            }
+            return rowValStr === valStr;
+          });
+        }
       });
-    }
-    if (sort && typeof sort === "string") {
-      tableRecords.sort((a, b) => {
-        const valA = sort === "id" ? a.id : a.data[sort];
-        const valB = sort === "id" ? b.id : b.data[sort];
-        if (valA === valB) return 0;
-        const result = valA > valB ? 1 : -1;
-        return order === "desc" ? -result : result;
+      if (sort && typeof sort === "string") {
+        tableRecords.sort((a, b) => {
+          const valA = sort === "id" ? a.id : a.data[sort];
+          const valB = sort === "id" ? b.id : b.data[sort];
+          if (valA === void 0 || valA === null) return 1;
+          if (valB === void 0 || valB === null) return -1;
+          if (valA === valB) return 0;
+          const result = valA > valB ? 1 : -1;
+          return order === "desc" ? -result : result;
+        });
+      } else {
+        tableRecords.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+      }
+      const total = tableRecords.length;
+      const totalPages = Math.max(1, Math.ceil(total / limitNum));
+      const offset = (pageNum - 1) * limitNum;
+      const pagedRecords = isAllRequested ? tableRecords : tableRecords.slice(offset, offset + limitNum);
+      res.json({
+        success: true,
+        records: pagedRecords,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+          hasNextPage: pageNum < totalPages,
+          hasPrevPage: pageNum > 1
+        }
       });
-    } else {
-      tableRecords.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+    } catch (err) {
+      console.error("[Records] Error fetching records:", err);
+      res.status(500).json({ success: false, error: err.message, records: [] });
     }
-    res.json(tableRecords);
   });
-  app.post("/api/projects/:projectId/tables/:tableId/records", (req, res) => {
-    const { projectId, tableId } = req.params;
-    const inputData = req.body || {};
-    const table = tables.find((t) => t.id === tableId && t.projectId === projectId);
-    if (!table) return res.status(404).json({ error: "Table not found" });
-    const selectError = validateSelectFieldValues(table, inputData);
-    if (selectError) {
-      return res.status(400).json({ error: selectError });
-    }
-    const primaryKeyId = getNextRecordId(tableId);
-    const recordData = {
-      ...inputData,
-      id: primaryKeyId
-    };
-    const newRecord = {
-      id: primaryKeyId,
-      tableId,
-      projectId,
-      data: recordData,
-      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    records.push(newRecord);
-    saveDataToFile();
-    mysqlUpsertRecord(newRecord);
-    res.status(201).json(newRecord);
-  });
-  app.put("/api/projects/:projectId/tables/:tableId/records/:recordId", (req, res) => {
-    const { projectId, tableId, recordId } = req.params;
-    const inputData = req.body || {};
-    const record = records.find(
-      (r) => r.projectId === projectId && r.tableId === tableId && String(r.id) === String(recordId)
-    );
-    if (!record) return res.status(404).json({ error: "Record not found" });
-    const table = tables.find((t) => t.id === tableId && t.projectId === projectId);
-    if (table) {
+  app.post("/api/projects/:projectId/tables/:tableId/records", async (req, res) => {
+    try {
+      const { projectId, tableId } = req.params;
+      const inputData = req.body || {};
+      const table = tables.find((t) => t.id === tableId && t.projectId === projectId);
+      if (!table) return res.status(404).json({ error: "Table not found" });
       const selectError = validateSelectFieldValues(table, inputData);
       if (selectError) {
         return res.status(400).json({ error: selectError });
       }
+      const primaryKeyId = isMySQLConnected() ? await getNextRecordIdFromMySQL(tableId) : getNextRecordId(tableId);
+      const recordData = {
+        ...inputData,
+        id: primaryKeyId
+      };
+      const newRecord = {
+        id: primaryKeyId,
+        tableId,
+        projectId,
+        data: recordData,
+        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      if (!isMySQLConnected()) {
+        records.push(newRecord);
+        saveDataToFile();
+      }
+      await mysqlUpsertRecord(newRecord);
+      res.status(201).json(newRecord);
+    } catch (err) {
+      console.error("[Records] Error adding record:", err);
+      res.status(500).json({ error: err.message });
     }
-    record.data = {
-      ...record.data,
-      ...inputData,
-      id: record.id
-    };
-    record.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-    saveDataToFile();
-    mysqlUpsertRecord(record);
-    res.json(record);
   });
-  app.delete("/api/projects/:projectId/tables/:tableId/records/:recordId", (req, res) => {
-    const { projectId, tableId, recordId } = req.params;
-    records = records.filter(
-      (r) => !(r.projectId === projectId && r.tableId === tableId && String(r.id) === String(recordId))
-    );
-    saveDataToFile();
-    mysqlDeleteRecord(tableId, recordId);
-    res.json({ success: true, message: "Record deleted" });
+  app.put("/api/projects/:projectId/tables/:tableId/records/:recordId", async (req, res) => {
+    try {
+      const { projectId, tableId, recordId } = req.params;
+      const inputData = req.body || {};
+      const table = tables.find((t) => t.id === tableId && t.projectId === projectId);
+      if (table) {
+        const selectError = validateSelectFieldValues(table, inputData);
+        if (selectError) {
+          return res.status(400).json({ error: selectError });
+        }
+      }
+      let existingData = {};
+      let createdAt = (/* @__PURE__ */ new Date()).toISOString();
+      if (isMySQLConnected()) {
+        const singleResult = await getPaginatedRecordsFromMySQL(tableId, { page: 1, limit: 1, filters: { id: recordId } });
+        if (singleResult.records.length > 0) {
+          existingData = singleResult.records[0].data;
+          createdAt = singleResult.records[0].createdAt;
+        }
+      } else {
+        const localRec = records.find((r) => r.projectId === projectId && r.tableId === tableId && String(r.id) === String(recordId));
+        if (localRec) {
+          existingData = localRec.data;
+          createdAt = localRec.createdAt;
+        }
+      }
+      const updatedRecord = {
+        id: isNaN(Number(recordId)) ? recordId : Number(recordId),
+        tableId,
+        projectId,
+        data: {
+          ...existingData,
+          ...inputData,
+          id: isNaN(Number(recordId)) ? recordId : Number(recordId)
+        },
+        createdAt,
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      if (!isMySQLConnected()) {
+        const index = records.findIndex((r) => r.projectId === projectId && r.tableId === tableId && String(r.id) === String(recordId));
+        if (index !== -1) {
+          records[index] = updatedRecord;
+          saveDataToFile();
+        }
+      }
+      await mysqlUpsertRecord(updatedRecord);
+      res.json(updatedRecord);
+    } catch (err) {
+      console.error("[Records] Error updating record:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app.delete("/api/projects/:projectId/tables/:tableId/records/:recordId", async (req, res) => {
+    try {
+      const { projectId, tableId, recordId } = req.params;
+      if (!isMySQLConnected()) {
+        records = records.filter(
+          (r) => !(r.projectId === projectId && r.tableId === tableId && String(r.id) === String(recordId))
+        );
+        saveDataToFile();
+      }
+      await mysqlDeleteRecord(tableId, recordId);
+      res.json({ success: true, message: "Record deleted" });
+    } catch (err) {
+      console.error("[Records] Error deleting record:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
   const authenticateToken = (req, res, next) => {
     let token;
@@ -3016,25 +3321,15 @@ Waktu: ${(/* @__PURE__ */ new Date()).toLocaleString("id-ID")}`;
       id: id !== void 0 && id !== null ? String(id).trim() : ""
     };
   };
-  const handleGetSchema = (req, res) => {
-    const proj = req.project;
-    let projTables = tables.filter((t) => t.projectId === proj.id);
-    if (req.scopedTable) {
-      projTables = projTables.filter((t) => t.id === req.scopedTable.id);
-    }
-    res.json({
-      success: true,
-      database: {
-        id: proj.id,
-        name: proj.name,
-        description: proj.description,
-        totalTables: projTables.length,
-        tokenScope: req.scopedTable ? `Tabel Khusus: ${req.scopedTable.name}` : "Master Database Token",
-        security: {
-          recommendedAuth: 'Header "Authorization: Bearer <API_TOKEN>" (Paling Aman)',
-          alternativeAuth: 'Header "X-API-Key: <API_TOKEN>"'
-        },
-        tables: projTables.map((t) => ({
+  const handleGetSchema = async (req, res) => {
+    try {
+      const proj = req.project;
+      let projTables = tables.filter((t) => t.projectId === proj.id);
+      if (req.scopedTable) {
+        projTables = projTables.filter((t) => t.id === req.scopedTable.id);
+      }
+      const tablesWithCount = await Promise.all(
+        projTables.map(async (t) => ({
           id: t.id,
           name: t.name,
           slug: t.slug,
@@ -3043,299 +3338,445 @@ Waktu: ${(/* @__PURE__ */ new Date()).toLocaleString("id-ID")}`;
           legacyEndpoint: `/api/v1/${t.token || proj.token}/${t.slug}`,
           hasDedicatedToken: !!t.token,
           fields: t.fields,
-          totalRecords: records.filter((r) => r.tableId === t.id).length
+          totalRecords: isMySQLConnected() ? await countTableRecordsInMySQL(t.id) : records.filter((r) => r.tableId === t.id).length
         }))
-      }
-    });
+      );
+      res.json({
+        success: true,
+        database: {
+          id: proj.id,
+          name: proj.name,
+          description: proj.description,
+          totalTables: projTables.length,
+          tokenScope: req.scopedTable ? `Tabel Khusus: ${req.scopedTable.name}` : "Master Database Token",
+          security: {
+            recommendedAuth: 'Header "Authorization: Bearer <API_TOKEN>" (Paling Aman)',
+            alternativeAuth: 'Header "X-API-Key: <API_TOKEN>"'
+          },
+          tables: tablesWithCount
+        }
+      });
+    } catch (err) {
+      console.error("[API Schema] Error:", err);
+      res.status(500).json({ success: false, error: err.message });
+    }
   };
-  const handleGetTableOrItem = (req, res) => {
-    const proj = req.project;
-    const { tableSlug, id } = resolveTarget(req);
-    if (!tableSlug) {
-      return res.status(400).json({ success: false, error: "Nama tabel (slug) wajib disertakan" });
-    }
-    const table = tables.find((t) => t.projectId === proj.id && t.slug.toLowerCase() === tableSlug.toLowerCase());
-    if (!table) {
-      return res.status(404).json({
-        success: false,
-        error: `Tabel "${tableSlug}" tidak ditemukan di database "${proj.name}"`
-      });
-    }
-    if (req.scopedTable && req.scopedTable.id !== table.id) {
-      return res.status(403).json({
-        success: false,
-        error: `Forbidden: Token ini khusus untuk tabel "${req.scopedTable.name}" dan tidak diizinkan mengakses tabel "${tableSlug}".`
-      });
-    }
-    if (id) {
-      const record = records.find((r) => r.tableId === table.id && String(r.id) === String(id));
-      if (!record) {
+  const handleGetTableOrItem = async (req, res) => {
+    try {
+      const proj = req.project;
+      const { tableSlug, id } = resolveTarget(req);
+      if (!tableSlug) {
+        return res.status(400).json({ success: false, error: "Nama tabel (slug) wajib disertakan" });
+      }
+      const table = tables.find((t2) => t2.projectId === proj.id && t2.slug.toLowerCase() === tableSlug.toLowerCase());
+      if (!table) {
         return res.status(404).json({
           success: false,
-          error: `Record dengan primary key #${id} tidak ditemukan di tabel "${tableSlug}"`
+          error: `Tabel "${tableSlug}" tidak ditemukan di database "${proj.name}"`
         });
       }
-      let filteredData = { ...record.data };
-      if (Array.isArray(table.apiVisibleFields) && table.apiVisibleFields.length > 0) {
-        const allowed = /* @__PURE__ */ new Set(["id", ...table.apiVisibleFields]);
-        const cleaned = {};
-        Object.keys(filteredData).forEach((k) => {
-          if (allowed.has(k)) {
-            cleaned[k] = filteredData[k];
+      if (req.scopedTable && req.scopedTable.id !== table.id) {
+        return res.status(403).json({
+          success: false,
+          error: `Forbidden: Token ini khusus untuk tabel "${req.scopedTable.name}" dan tidak diizinkan mengakses tabel "${tableSlug}".`
+        });
+      }
+      if (id) {
+        let record;
+        if (isMySQLConnected()) {
+          try {
+            const singleResult = await getPaginatedRecordsFromMySQL(table.id, {
+              page: 1,
+              limit: 1,
+              filters: { id }
+            });
+            if (singleResult.records.length > 0) {
+              record = singleResult.records[0];
+            }
+          } catch (_2) {
+          }
+        } else {
+          record = records.find((r) => r.tableId === table.id && String(r.id) === String(id));
+        }
+        if (!record) {
+          return res.status(404).json({
+            success: false,
+            error: `Record dengan primary key #${id} tidak ditemukan di tabel "${tableSlug}"`
+          });
+        }
+        let filteredData = { ...record.data };
+        if (Array.isArray(table.apiVisibleFields) && table.apiVisibleFields.length > 0) {
+          const allowed = /* @__PURE__ */ new Set(["id", ...table.apiVisibleFields]);
+          const cleaned = {};
+          Object.keys(filteredData).forEach((k) => {
+            if (allowed.has(k)) {
+              cleaned[k] = filteredData[k];
+            }
+          });
+          filteredData = cleaned;
+        }
+        return res.json({
+          success: true,
+          table: table.slug,
+          data: {
+            ...filteredData,
+            _created_at: record.createdAt,
+            _updated_at: record.updatedAt
           }
         });
-        filteredData = cleaned;
       }
-      return res.json({
+      const { search, q, limit, offset, page, sort, sort_by, order, sort_order, all, token, api_key, key, _, t, ...fieldFilters } = req.query;
+      const isAll = all === "true";
+      const limitNum = isAll ? 500 : Math.min(500, Math.max(1, parseInt(String(limit || "25"), 10) || 25));
+      let pageNum = Math.max(1, parseInt(String(page || "1"), 10) || 1);
+      if (offset !== void 0 && page === void 0) {
+        const customOffset = Math.max(0, parseInt(String(offset), 10) || 0);
+        pageNum = Math.floor(customOffset / limitNum) + 1;
+      }
+      const activeSearch = search || q ? String(search || q) : void 0;
+      const activeSort = sort || sort_by ? String(sort || sort_by) : "id";
+      const activeOrder = order === "desc" || sort_order === "desc" ? "desc" : "asc";
+      if (isMySQLConnected()) {
+        try {
+          const mysqlResult = await getPaginatedRecordsFromMySQL(table.id, {
+            page: pageNum,
+            limit: limitNum,
+            search: activeSearch,
+            sort: activeSort,
+            order: activeOrder,
+            filters: fieldFilters
+          });
+          const data2 = mysqlResult.records.map((r) => {
+            let itemData = { ...r.data };
+            if (Array.isArray(table.apiVisibleFields) && table.apiVisibleFields.length > 0) {
+              const allowed = /* @__PURE__ */ new Set(["id", ...table.apiVisibleFields]);
+              const cleaned = {};
+              Object.keys(itemData).forEach((k) => {
+                if (allowed.has(k)) {
+                  cleaned[k] = itemData[k];
+                }
+              });
+              itemData = cleaned;
+            }
+            return {
+              ...itemData,
+              _created_at: r.createdAt,
+              _updated_at: r.updatedAt
+            };
+          });
+          return res.json({
+            success: true,
+            table: table.slug,
+            primaryKey: table.primaryKey || "id",
+            pagination: {
+              page: mysqlResult.page,
+              limit: mysqlResult.limit,
+              total: mysqlResult.total,
+              totalPages: mysqlResult.totalPages,
+              hasNextPage: mysqlResult.hasNextPage,
+              hasPrevPage: mysqlResult.hasPrevPage
+            },
+            total: mysqlResult.total,
+            count: data2.length,
+            data: data2
+          });
+        } catch (dbErr) {
+          console.warn("[API v1] MySQL query error, fallback to memory:", dbErr);
+        }
+      }
+      let tableRecords = records.filter((r) => r.tableId === table.id);
+      if (activeSearch) {
+        const queryStr = activeSearch.toLowerCase();
+        const searchable = Array.isArray(table.apiSearchableFields) && table.apiSearchableFields.length > 0 ? table.apiSearchableFields : null;
+        tableRecords = tableRecords.filter((r) => {
+          if (String(r.id).toLowerCase().includes(queryStr)) return true;
+          if (searchable) {
+            return searchable.some((fieldKey) => {
+              const val = r.data[fieldKey];
+              return String(val || "").toLowerCase().includes(queryStr);
+            });
+          } else {
+            return Object.values(r.data).some((v) => String(v || "").toLowerCase().includes(queryStr));
+          }
+        });
+      }
+      Object.entries(fieldFilters).forEach(([filterKey, filterVal]) => {
+        if (filterVal !== void 0 && filterVal !== null && String(filterVal).trim() !== "") {
+          const valStr = String(filterVal).trim().toLowerCase();
+          tableRecords = tableRecords.filter((r) => {
+            const rawVal = filterKey === "id" ? r.id : r.data[filterKey];
+            if (rawVal === void 0 || rawVal === null) return false;
+            const rowValStr = String(rawVal).toLowerCase();
+            if (valStr.includes(",") && !valStr.startsWith('"')) {
+              const multi = valStr.split(",").map((s) => s.trim()).filter(Boolean);
+              return multi.includes(rowValStr);
+            }
+            return rowValStr === valStr;
+          });
+        }
+      });
+      if (activeSort) {
+        tableRecords.sort((a, b) => {
+          const valA = activeSort === "id" ? a.id : a.data[activeSort];
+          const valB = activeSort === "id" ? b.id : b.data[activeSort];
+          if (valA === void 0 || valA === null) return 1;
+          if (valB === void 0 || valB === null) return -1;
+          if (valA === valB) return 0;
+          const result = valA > valB ? 1 : -1;
+          return activeOrder === "desc" ? -result : result;
+        });
+      } else {
+        tableRecords.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+      }
+      const total = tableRecords.length;
+      const totalPages = Math.max(1, Math.ceil(total / limitNum));
+      const calcOffset = (pageNum - 1) * limitNum;
+      const pagedRecords = isAll ? tableRecords : tableRecords.slice(calcOffset, calcOffset + limitNum);
+      const data = pagedRecords.map((r) => {
+        let itemData = { ...r.data };
+        if (Array.isArray(table.apiVisibleFields) && table.apiVisibleFields.length > 0) {
+          const allowed = /* @__PURE__ */ new Set(["id", ...table.apiVisibleFields]);
+          const cleaned = {};
+          Object.keys(itemData).forEach((k) => {
+            if (allowed.has(k)) {
+              cleaned[k] = itemData[k];
+            }
+          });
+          itemData = cleaned;
+        }
+        return {
+          ...itemData,
+          _created_at: r.createdAt,
+          _updated_at: r.updatedAt
+        };
+      });
+      res.json({
         success: true,
         table: table.slug,
-        data: {
-          ...filteredData,
-          _created_at: record.createdAt,
-          _updated_at: record.updatedAt
-        }
+        primaryKey: table.primaryKey || "id",
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+          hasNextPage: pageNum < totalPages,
+          hasPrevPage: pageNum > 1
+        },
+        total,
+        count: data.length,
+        data
       });
+    } catch (err) {
+      console.error("[API v1] Error handling get table records:", err);
+      res.status(500).json({ success: false, error: err.message });
     }
-    let tableRecords = records.filter((r) => r.tableId === table.id);
-    const { search, limit, offset, sort, order, ...fieldFilters } = req.query;
-    if (search && typeof search === "string") {
-      const q = search.toLowerCase();
-      const searchable = Array.isArray(table.apiSearchableFields) && table.apiSearchableFields.length > 0 ? table.apiSearchableFields : null;
-      tableRecords = tableRecords.filter((r) => {
-        if (String(r.id).toLowerCase().includes(q)) return true;
-        if (searchable) {
-          return searchable.some((fieldKey) => {
-            const val = r.data[fieldKey];
-            return String(val || "").toLowerCase().includes(q);
-          });
-        } else {
-          return Object.values(r.data).some((v) => String(v || "").toLowerCase().includes(q));
+  };
+  const handlePostRecord = async (req, res) => {
+    try {
+      const proj = req.project;
+      const { tableSlug } = resolveTarget(req);
+      if (!tableSlug) {
+        return res.status(400).json({ success: false, error: "Nama tabel (slug) wajib disertakan" });
+      }
+      let payload = req.body || {};
+      if (typeof payload === "string") {
+        try {
+          payload = JSON.parse(payload);
+        } catch (e) {
+          return res.status(400).json({ success: false, error: "Format JSON body tidak valid" });
         }
-      });
-    }
-    Object.entries(fieldFilters).forEach(([filterKey, filterVal]) => {
-      if (filterVal !== void 0) {
-        tableRecords = tableRecords.filter((r) => {
-          const val = r.data[filterKey];
-          return String(val).toLowerCase() === String(filterVal).toLowerCase();
+      }
+      const table = tables.find((t) => t.projectId === proj.id && t.slug.toLowerCase() === tableSlug.toLowerCase());
+      if (!table) {
+        return res.status(404).json({ success: false, error: `Tabel "${tableSlug}" tidak ditemukan` });
+      }
+      if (req.scopedTable && req.scopedTable.id !== table.id) {
+        return res.status(403).json({
+          success: false,
+          error: `Forbidden: Token ini khusus untuk tabel "${req.scopedTable.name}" dan tidak diizinkan membuat data di tabel "${tableSlug}".`
         });
       }
-    });
-    if (sort && typeof sort === "string") {
-      tableRecords.sort((a, b) => {
-        const valA = sort === "id" ? a.id : a.data[sort];
-        const valB = sort === "id" ? b.id : b.data[sort];
-        if (valA === valB) return 0;
-        const result = valA > valB ? 1 : -1;
-        return order === "desc" ? -result : result;
+      const missingFields = [];
+      table.fields.forEach((f) => {
+        if (f.required && !f.isPrimaryKey && f.key !== "id" && (payload[f.key] === void 0 || payload[f.key] === null || payload[f.key] === "")) {
+          missingFields.push(f.key);
+        }
       });
-    } else {
-      tableRecords.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
-    }
-    const total = tableRecords.length;
-    const numLimit = limit ? parseInt(String(limit), 10) : void 0;
-    const numOffset = offset ? parseInt(String(offset), 10) : 0;
-    if (numLimit && !isNaN(numLimit)) {
-      tableRecords = tableRecords.slice(numOffset, numOffset + numLimit);
-    }
-    const data = tableRecords.map((r) => {
-      let itemData = { ...r.data };
-      if (Array.isArray(table.apiVisibleFields) && table.apiVisibleFields.length > 0) {
-        const allowed = /* @__PURE__ */ new Set(["id", ...table.apiVisibleFields]);
-        const cleaned = {};
-        Object.keys(itemData).forEach((k) => {
-          if (allowed.has(k)) {
-            cleaned[k] = itemData[k];
-          }
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: `Kolom wajib diisi belum lengkap: ${missingFields.join(", ")}`
         });
-        itemData = cleaned;
       }
-      return {
-        ...itemData,
-        _created_at: r.createdAt,
-        _updated_at: r.updatedAt
+      const selectError = validateSelectFieldValues(table, payload);
+      if (selectError) {
+        return res.status(400).json({
+          success: false,
+          error: selectError
+        });
+      }
+      const primaryKeyId = isMySQLConnected() ? await getNextRecordIdFromMySQL(table.id) : getNextRecordId(table.id);
+      const recordData = {
+        ...payload,
+        id: primaryKeyId
       };
-    });
-    res.json({
-      success: true,
-      table: table.slug,
-      primaryKey: table.primaryKey || "id",
-      total,
-      count: data.length,
-      data
-    });
-  };
-  const handlePostRecord = (req, res) => {
-    const proj = req.project;
-    const { tableSlug } = resolveTarget(req);
-    if (!tableSlug) {
-      return res.status(400).json({ success: false, error: "Nama tabel (slug) wajib disertakan" });
-    }
-    let payload = req.body || {};
-    if (typeof payload === "string") {
-      try {
-        payload = JSON.parse(payload);
-      } catch (e) {
-        return res.status(400).json({ success: false, error: "Format JSON body tidak valid" });
-      }
-    }
-    const table = tables.find((t) => t.projectId === proj.id && t.slug.toLowerCase() === tableSlug.toLowerCase());
-    if (!table) {
-      return res.status(404).json({ success: false, error: `Tabel "${tableSlug}" tidak ditemukan` });
-    }
-    if (req.scopedTable && req.scopedTable.id !== table.id) {
-      return res.status(403).json({
-        success: false,
-        error: `Forbidden: Token ini khusus untuk tabel "${req.scopedTable.name}" dan tidak diizinkan membuat data di tabel "${tableSlug}".`
-      });
-    }
-    const missingFields = [];
-    table.fields.forEach((f) => {
-      if (f.required && !f.isPrimaryKey && f.key !== "id" && (payload[f.key] === void 0 || payload[f.key] === null || payload[f.key] === "")) {
-        missingFields.push(f.key);
-      }
-    });
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: `Kolom wajib diisi belum lengkap: ${missingFields.join(", ")}`
-      });
-    }
-    const selectError = validateSelectFieldValues(table, payload);
-    if (selectError) {
-      return res.status(400).json({
-        success: false,
-        error: selectError
-      });
-    }
-    const primaryKeyId = getNextRecordId(table.id);
-    const recordData = {
-      ...payload,
-      id: primaryKeyId
-    };
-    const newRecord = {
-      id: primaryKeyId,
-      tableId: table.id,
-      projectId: proj.id,
-      data: recordData,
-      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    records.push(newRecord);
-    saveDataToFile();
-    mysqlUpsertRecord(newRecord);
-    res.status(201).json({
-      success: true,
-      message: `Record dengan Primary Key #${primaryKeyId} berhasil dibuat di tabel "${table.slug}"`,
-      data: {
+      const newRecord = {
         id: primaryKeyId,
-        ...recordData,
-        _created_at: newRecord.createdAt
+        tableId: table.id,
+        projectId: proj.id,
+        data: recordData,
+        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      if (!isMySQLConnected()) {
+        records.push(newRecord);
+        saveDataToFile();
       }
-    });
+      await mysqlUpsertRecord(newRecord);
+      res.status(201).json({
+        success: true,
+        message: `Record dengan Primary Key #${primaryKeyId} berhasil dibuat di tabel "${table.slug}"`,
+        data: {
+          id: primaryKeyId,
+          ...recordData,
+          _created_at: newRecord.createdAt
+        }
+      });
+    } catch (err) {
+      console.error("[API v1 Post] Error:", err);
+      res.status(500).json({ success: false, error: err.message });
+    }
   };
-  const handlePutRecord = (req, res) => {
-    const proj = req.project;
-    const { tableSlug, id: targetId } = resolveTarget(req);
-    if (!tableSlug) {
-      return res.status(400).json({ success: false, error: "Nama tabel (slug) wajib disertakan" });
-    }
-    let payload = req.body || {};
-    if (typeof payload === "string") {
-      try {
-        payload = JSON.parse(payload);
-      } catch (e) {
-        return res.status(400).json({ success: false, error: "Format JSON body tidak valid" });
+  const handlePutRecord = async (req, res) => {
+    try {
+      const proj = req.project;
+      const { tableSlug, id: targetId } = resolveTarget(req);
+      if (!tableSlug) {
+        return res.status(400).json({ success: false, error: "Nama tabel (slug) wajib disertakan" });
       }
-    }
-    const table = tables.find((t) => t.projectId === proj.id && t.slug.toLowerCase() === tableSlug.toLowerCase());
-    if (!table) {
-      return res.status(404).json({ success: false, error: `Tabel "${tableSlug}" tidak ditemukan` });
-    }
-    if (req.scopedTable && req.scopedTable.id !== table.id) {
-      return res.status(403).json({
-        success: false,
-        error: `Forbidden: Token ini khusus untuk tabel "${req.scopedTable.name}" dan tidak diizinkan mengubah data di tabel "${tableSlug}".`
-      });
-    }
-    if (!targetId) {
-      return res.status(400).json({
-        success: false,
-        error: `Parameter ID primary key wajib disertakan. Contoh: PUT /api/v1/${table.slug}/1 atau sertakan {"id": 1} di request body.`
-      });
-    }
-    const record = records.find((r) => r.tableId === table.id && String(r.id) === String(targetId));
-    if (!record) {
-      return res.status(404).json({
-        success: false,
-        error: `Record dengan primary key #${targetId} tidak ditemukan di tabel "${tableSlug}"`
-      });
-    }
-    const selectError = validateSelectFieldValues(table, payload);
-    if (selectError) {
-      return res.status(400).json({
-        success: false,
-        error: selectError
-      });
-    }
-    record.data = {
-      ...record.data,
-      ...payload,
-      id: record.id
-    };
-    record.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-    saveDataToFile();
-    mysqlUpsertRecord(record);
-    res.json({
-      success: true,
-      message: `Record #${record.id} berhasil diperbarui di tabel "${table.slug}"`,
-      data: {
-        id: record.id,
-        ...record.data,
-        _updated_at: record.updatedAt
+      let payload = req.body || {};
+      if (typeof payload === "string") {
+        try {
+          payload = JSON.parse(payload);
+        } catch (e) {
+          return res.status(400).json({ success: false, error: "Format JSON body tidak valid" });
+        }
       }
-    });
+      const table = tables.find((t) => t.projectId === proj.id && t.slug.toLowerCase() === tableSlug.toLowerCase());
+      if (!table) {
+        return res.status(404).json({ success: false, error: `Tabel "${tableSlug}" tidak ditemukan` });
+      }
+      if (req.scopedTable && req.scopedTable.id !== table.id) {
+        return res.status(403).json({
+          success: false,
+          error: `Forbidden: Token ini khusus untuk tabel "${req.scopedTable.name}" dan tidak diizinkan mengubah data di tabel "${tableSlug}".`
+        });
+      }
+      if (!targetId) {
+        return res.status(400).json({
+          success: false,
+          error: `Parameter ID primary key wajib disertakan. Contoh: PUT /api/v1/${table.slug}/1 atau sertakan {"id": 1} di request body.`
+        });
+      }
+      let existingRecord;
+      if (isMySQLConnected()) {
+        const singleResult = await getPaginatedRecordsFromMySQL(table.id, { page: 1, limit: 1, filters: { id: targetId } });
+        if (singleResult.records.length > 0) {
+          existingRecord = singleResult.records[0];
+        }
+      } else {
+        existingRecord = records.find((r) => r.tableId === table.id && String(r.id) === String(targetId));
+      }
+      if (!existingRecord) {
+        return res.status(404).json({
+          success: false,
+          error: `Record dengan primary key #${targetId} tidak ditemukan di tabel "${tableSlug}"`
+        });
+      }
+      const selectError = validateSelectFieldValues(table, payload);
+      if (selectError) {
+        return res.status(400).json({
+          success: false,
+          error: selectError
+        });
+      }
+      const updatedRecord = {
+        id: isNaN(Number(targetId)) ? targetId : Number(targetId),
+        tableId: table.id,
+        projectId: proj.id,
+        data: {
+          ...existingRecord.data,
+          ...payload,
+          id: existingRecord.id
+        },
+        createdAt: existingRecord.createdAt,
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      if (!isMySQLConnected()) {
+        const idx = records.findIndex((r) => r.tableId === table.id && String(r.id) === String(targetId));
+        if (idx !== -1) {
+          records[idx] = updatedRecord;
+          saveDataToFile();
+        }
+      }
+      await mysqlUpsertRecord(updatedRecord);
+      res.json({
+        success: true,
+        message: `Record #${updatedRecord.id} berhasil diperbarui di tabel "${table.slug}"`,
+        data: {
+          id: updatedRecord.id,
+          ...updatedRecord.data,
+          _updated_at: updatedRecord.updatedAt
+        }
+      });
+    } catch (err) {
+      console.error("[API v1 Put] Error:", err);
+      res.status(500).json({ success: false, error: err.message });
+    }
   };
-  const handleDeleteRecord = (req, res) => {
-    const proj = req.project;
-    const { tableSlug, id: targetId } = resolveTarget(req);
-    if (!tableSlug) {
-      return res.status(400).json({ success: false, error: "Nama tabel (slug) wajib disertakan" });
-    }
-    const table = tables.find((t) => t.projectId === proj.id && t.slug.toLowerCase() === tableSlug.toLowerCase());
-    if (!table) {
-      return res.status(404).json({ success: false, error: `Tabel "${tableSlug}" tidak ditemukan` });
-    }
-    if (req.scopedTable && req.scopedTable.id !== table.id) {
-      return res.status(403).json({
-        success: false,
-        error: `Forbidden: Token ini khusus untuk tabel "${req.scopedTable.name}" dan tidak diizinkan menghapus data di tabel "${tableSlug}".`
-      });
-    }
-    if (!targetId) {
-      return res.status(400).json({
-        success: false,
-        error: `Parameter ID primary key wajib disertakan. Contoh: DELETE /api/v1/${table.slug}/1 atau sertakan ?id=1 di URL.`
-      });
-    }
-    const index = records.findIndex((r) => r.tableId === table.id && String(r.id) === String(targetId));
-    if (index === -1) {
-      return res.status(404).json({
-        success: false,
-        error: `Record dengan primary key #${targetId} tidak ditemukan di tabel "${tableSlug}"`
-      });
-    }
-    const deleted = records.splice(index, 1)[0];
-    saveDataToFile();
-    mysqlDeleteRecord(table.id, targetId);
-    res.json({
-      success: true,
-      message: `Record #${targetId} berhasil dihapus dari tabel "${table.slug}"`,
-      deletedRecord: {
-        id: deleted.id,
-        ...deleted.data
+  const handleDeleteRecord = async (req, res) => {
+    try {
+      const proj = req.project;
+      const { tableSlug, id: targetId } = resolveTarget(req);
+      if (!tableSlug) {
+        return res.status(400).json({ success: false, error: "Nama tabel (slug) wajib disertakan" });
       }
-    });
+      const table = tables.find((t) => t.projectId === proj.id && t.slug.toLowerCase() === tableSlug.toLowerCase());
+      if (!table) {
+        return res.status(404).json({ success: false, error: `Tabel "${tableSlug}" tidak ditemukan` });
+      }
+      if (req.scopedTable && req.scopedTable.id !== table.id) {
+        return res.status(403).json({
+          success: false,
+          error: `Forbidden: Token ini khusus untuk tabel "${req.scopedTable.name}" dan tidak diizinkan menghapus data di tabel "${tableSlug}".`
+        });
+      }
+      if (!targetId) {
+        return res.status(400).json({
+          success: false,
+          error: `Parameter ID primary key wajib disertakan. Contoh: DELETE /api/v1/${table.slug}/1 atau sertakan ?id=1 di URL.`
+        });
+      }
+      if (!isMySQLConnected()) {
+        const index = records.findIndex((r) => r.tableId === table.id && String(r.id) === String(targetId));
+        if (index === -1) {
+          return res.status(404).json({
+            success: false,
+            error: `Record dengan primary key #${targetId} tidak ditemukan di tabel "${tableSlug}"`
+          });
+        }
+        records.splice(index, 1);
+        saveDataToFile();
+      }
+      await mysqlDeleteRecord(table.id, targetId);
+      res.json({
+        success: true,
+        message: `Record #${targetId} berhasil dihapus dari tabel "${table.slug}"`
+      });
+    } catch (err) {
+      console.error("[API v1 Delete] Error:", err);
+      res.status(500).json({ success: false, error: err.message });
+    }
   };
   app.get("/api/v1/schema", authenticateToken, handleGetSchema);
   app.get("/api/v1/:param1/schema", authenticateToken, handleGetSchema);
@@ -3373,6 +3814,15 @@ Waktu: ${(/* @__PURE__ */ new Date()).toLocaleString("id-ID")}`;
     });
     app.use(vite.middlewares);
   }
+  app.use((err, req, res, next) => {
+    console.error("[API Error Catch]", err);
+    if (!res.headersSent) {
+      res.status(err.status || 500).json({
+        success: false,
+        error: err.message || "Terjadi kesalahan pada internal server."
+      });
+    }
+  });
   app.listen(PORT, () => {
     console.log(`[Visual Database Engine & API] Server running on port ${PORT}`);
   });
