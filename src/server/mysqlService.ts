@@ -101,17 +101,40 @@ export function getEnvDbConfig(): MySQLConfig {
   };
 }
 
-export function getSafeDbConfig(): EnvDbConfigInfo {
+// Helper to mask sensitive host and credentials
+export function maskString(str?: string, visibleChars = 2): string {
+  if (!str) return '';
+  if (str.length <= visibleChars * 2) {
+    return str[0] + '••••' + (str.length > 1 ? str[str.length - 1] : '');
+  }
+  return str.slice(0, visibleChars) + '••••' + str.slice(-visibleChars);
+}
+
+export function maskHost(host?: string): string {
+  if (!host) return '';
+  if (host === 'localhost' || host === '127.0.0.1') return 'localhost';
+  const parts = host.split('.');
+  if (parts.length === 4) {
+    return `***.***.***.${parts[3]}`;
+  }
+  const domainParts = host.split('.');
+  if (domainParts.length >= 2) {
+    return `***.${domainParts.slice(-2).join('.')}`;
+  }
+  return maskString(host, 3);
+}
+
+export function getSafeDbConfig(isSuperadmin = false): EnvDbConfigInfo {
   const envCfg = getEnvDbConfig();
   const rawUri = envCfg.uri || '';
   const maskedUri = rawUri ? rawUri.replace(/:([^@]+)@/, ':••••••••@') : '';
 
   return {
     isConfiguredInEnv: envCfg.enabled,
-    host: envCfg.host,
-    port: envCfg.port,
-    user: envCfg.user,
-    database: envCfg.database,
+    host: isSuperadmin ? maskHost(envCfg.host) : '••••••••',
+    port: envCfg.port || 3306,
+    user: isSuperadmin ? maskString(envCfg.user) : '••••••••',
+    database: isSuperadmin ? maskString(envCfg.database) : '••••••••',
     ssl: envCfg.ssl,
     uri: maskedUri,
     hasPassword: Boolean(envCfg.password && envCfg.password.length > 0),
@@ -415,19 +438,8 @@ export async function connectMySQL(cfg?: MySQLConfig): Promise<{ success: boolea
   }
 }
 
-let autoReconnectTimer: NodeJS.Timeout | null = null;
 export function startAutoReconnectLoop() {
-  if (autoReconnectTimer) return;
-  autoReconnectTimer = setInterval(async () => {
-    const cfg = getEnvDbConfig();
-    if (cfg.enabled && !currentPool) {
-      console.log('[MySQL] Auto-reconnect: Mencoba menghubungkan ulang ke database online...');
-      const res = await connectMySQL(cfg);
-      if (res.success) {
-        console.log('[MySQL] Auto-reconnect: Berhasil terhubung kembali ke database online!');
-      }
-    }
-  }, 10000); // Check and retry every 10 seconds
+  // Disabled: No automated background polling loop. Manual test & reconnect via Superadmin dashboard.
 }
 
 export async function disconnectMySQL(): Promise<{ success: boolean }> {
@@ -445,18 +457,28 @@ export function isMySQLConnected(): boolean {
   return currentPool !== null;
 }
 
-export async function getMySQLStatus(): Promise<MySQLStatus> {
+export async function getMySQLStatus(isSuperadmin = false): Promise<MySQLStatus> {
+  const isConnected = currentPool !== null;
   const envCfg = getEnvDbConfig();
+
+  // If not superadmin (or public check), return clean non-sensitive status only
+  if (!isSuperadmin) {
+    return {
+      engine: isConnected ? 'mysql' : 'local',
+      connected: isConnected
+    };
+  }
+
   if (!currentPool) {
     return {
       engine: 'local',
       connected: false,
-      host: envCfg.host,
-      port: envCfg.port,
-      database: envCfg.database,
-      user: envCfg.user,
+      host: envCfg.enabled ? maskHost(envCfg.host) : undefined,
+      port: envCfg.enabled ? envCfg.port : undefined,
+      database: envCfg.enabled ? maskString(envCfg.database) : undefined,
+      user: envCfg.enabled ? maskString(envCfg.user) : undefined,
       ssl: envCfg.ssl,
-      error: lastError
+      error: lastError ? 'Koneksi database terputus' : undefined
     };
   }
 
@@ -471,10 +493,10 @@ export async function getMySQLStatus(): Promise<MySQLStatus> {
     return {
       engine: 'mysql',
       connected: true,
-      host: envCfg.host,
+      host: maskHost(envCfg.host),
       port: envCfg.port,
-      database: envCfg.database,
-      user: envCfg.user,
+      database: maskString(envCfg.database),
+      user: maskString(envCfg.user),
       ssl: envCfg.ssl,
       latencyMs,
       tablesCount: tableRows[0]?.total || 0,
@@ -486,11 +508,11 @@ export async function getMySQLStatus(): Promise<MySQLStatus> {
     return {
       engine: 'mysql',
       connected: false,
-      host: envCfg.host,
+      host: maskHost(envCfg.host),
       port: envCfg.port,
-      database: envCfg.database,
-      user: envCfg.user,
-      error: lastError
+      database: maskString(envCfg.database),
+      user: maskString(envCfg.user),
+      error: 'Gangguan koneksi database'
     };
   }
 }

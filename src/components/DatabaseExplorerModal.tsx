@@ -70,10 +70,18 @@ export function DatabaseExplorerModal({ isOpen, onClose, language }: DatabaseExp
     }
   };
 
+  const getAuthHeaders = (): Record<string, string> => {
+    const token = localStorage.getItem('dataforge_token');
+    return {
+      'Accept': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
+
   const fetchTables = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/db/tables-list');
+      const res = await fetch('/api/db/tables-list', { headers: getAuthHeaders() });
       const data = await res.json();
       if (data.success && data.tables.length > 0) {
         setTables(data.tables);
@@ -89,7 +97,10 @@ export function DatabaseExplorerModal({ isOpen, onClose, language }: DatabaseExp
   const fetchTableData = async (table: string, pageNum: number) => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/db/table-rows?table=${encodeURIComponent(table)}&page=${pageNum}&limit=${limit}`);
+      const res = await fetch(
+        `/api/db/table-rows?table=${encodeURIComponent(table)}&page=${pageNum}&limit=${limit}`,
+        { headers: getAuthHeaders() }
+      );
       const data = await res.json();
       if (data.success) {
         setColumns(data.columns || []);
@@ -116,7 +127,7 @@ export function DatabaseExplorerModal({ isOpen, onClose, language }: DatabaseExp
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-fadeIn">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-fadeIn">
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-5xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-scaleUp">
         {/* Header */}
         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/50">

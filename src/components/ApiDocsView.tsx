@@ -169,7 +169,7 @@ export function ApiDocsView({
   const snippets = currentTable ? getSnippets(currentTable) : null;
 
   return (
-    <div className="space-y-5 max-w-5xl mx-auto pb-12 animate-fadeIn max-w-full overflow-hidden">
+    <div className="space-y-5 max-w-5xl mx-auto pb-12 animate-fadeIn max-w-full">
       {/* Top Banner */}
       <div className="p-4 sm:p-6 bg-gradient-to-br from-indigo-900 via-slate-900 to-slate-950 text-white rounded-2xl shadow-xl border border-indigo-800/40 relative overflow-hidden">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">

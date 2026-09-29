@@ -44,7 +44,7 @@ export function App() {
   const [tables, setTables] = useState<DatabaseTable[]>([]);
   const [activeTableId, setActiveTableId] = useState<string>('');
   const [records, setRecords] = useState<DatabaseRecord[]>([]);
-  const [dbStatus, setDbStatus] = useState<MySQLStatus | null>(null);
+  const [dbStatus, setDbStatus] = useState<MySQLStatus | null>({ engine: 'mysql', connected: true });
 
   // Authentication State
   const [currentUser, setCurrentUser] = useState<SafeUser | null>(null);
@@ -216,10 +216,17 @@ export function App() {
     setIsAuthModalOpen(false);
   };
 
-  // Fetch DB Status
+  // Fetch DB Status (Safe, authenticated if logged in)
   const fetchDbStatus = async () => {
     try {
-      const res = await fetch('/api/db/status');
+      const token = localStorage.getItem('dataforge_token');
+      const headers: Record<string, string> = {
+        'Accept': 'application/json'
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const res = await fetch('/api/db/status', { headers });
       if (res.ok) {
         const data = await res.json();
         setDbStatus(data);
@@ -229,7 +236,14 @@ export function App() {
 
   const handleRetryDbConnection = async (): Promise<boolean> => {
     try {
-      const res = await fetch('/api/db/reconnect', { method: 'POST' });
+      const token = localStorage.getItem('dataforge_token');
+      const res = await fetch('/api/db/reconnect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      });
       const data = await res.json();
       await fetchDbStatus();
       if (data.success) {
@@ -243,13 +257,6 @@ export function App() {
       return false;
     }
   };
-
-  useEffect(() => {
-    fetchDbStatus();
-    // Periodically poll DB status every 12 seconds to ensure uninterrupted online DB connection
-    const interval = setInterval(fetchDbStatus, 12000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Fetch Projects whenever currentUser changes
   useEffect(() => {
@@ -521,7 +528,7 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col md:flex-row antialiased font-sans transition-colors duration-150">
+    <div className="min-h-screen md:h-screen md:overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col md:flex-row antialiased font-sans transition-colors duration-150">
       {/* Mobile Top Navigation */}
       <MobileNav
         projects={projects}
@@ -546,7 +553,7 @@ export function App() {
       />
 
       {/* Desktop Left Sidebar */}
-      <div className="hidden md:flex">
+      <div className="hidden md:flex shrink-0">
         <Sidebar
           projects={projects}
           activeProjectId={activeProjectId}
@@ -572,8 +579,8 @@ export function App() {
         />
       </div>
 
-      {/* Main Content Area */}
-      <main className="flex-1 min-w-0 max-w-full overflow-x-hidden overflow-y-auto p-3 sm:p-6 lg:p-8 pb-28 md:pb-8">
+      {/* Main Content Area: Natural window scrolling on mobile, isolated scroll on desktop */}
+      <main className="flex-1 min-w-0 max-w-full md:overflow-y-auto md:h-screen p-3 sm:p-6 lg:p-8 pb-32 md:pb-8">
         <Suspense fallback={<ComponentLoader />}>
           {loading ? (
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 text-slate-400">

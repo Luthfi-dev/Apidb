@@ -29,7 +29,12 @@ export function MysqlSchemaView({ language, onNavigateToConnection }: MysqlSchem
   const [activeTab, setActiveTab] = useState<'sql' | 'tables' | 'guide'>('sql');
 
   useEffect(() => {
-    fetch('/api/db/schema-sql')
+    const token = localStorage.getItem('dataforge_token');
+    fetch('/api/db/schema-sql', {
+      headers: {
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      }
+    })
       .then(res => res.text())
       .then(text => {
         setSchemaSql(text);

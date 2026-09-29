@@ -42,17 +42,25 @@ export function OnlineDatabaseView({ language, onNavigateToSchema, onDataSynced 
   const [copiedEnv, setCopiedEnv] = useState(false);
   const [isExplorerOpen, setIsExplorerOpen] = useState(false);
 
+  const getAuthHeaders = (): Record<string, string> => {
+    const token = localStorage.getItem('dataforge_token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
+
   // Fetch current status and config from server
   const fetchStatus = async () => {
     try {
       setLoadingStatus(true);
-      const res = await fetch('/api/db/status');
+      const res = await fetch('/api/db/status', { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         setStatus(data);
       }
 
-      const cfgRes = await fetch('/api/db/config');
+      const cfgRes = await fetch('/api/db/config', { headers: getAuthHeaders() });
       if (cfgRes.ok) {
         const cfg: EnvDbConfigInfo = await cfgRes.json();
         setEnvConfig(cfg);
@@ -76,7 +84,7 @@ export function OnlineDatabaseView({ language, onNavigateToSchema, onDataSynced 
     try {
       const res = await fetch('/api/db/test-env', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: getAuthHeaders()
       });
       const data = await res.json();
       setTestResult(data);
@@ -94,7 +102,7 @@ export function OnlineDatabaseView({ language, onNavigateToSchema, onDataSynced 
     try {
       const res = await fetch('/api/db/reconnect-env', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: getAuthHeaders()
       });
       const data = await res.json();
 
@@ -116,7 +124,10 @@ export function OnlineDatabaseView({ language, onNavigateToSchema, onDataSynced 
     if (!confirm('Putuskan koneksi ke MySQL online dan beralih kembali ke penyimpanan lokal data.json?')) return;
     setIsConnecting(true);
     try {
-      const res = await fetch('/api/db/disconnect', { method: 'POST' });
+      const res = await fetch('/api/db/disconnect', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         setConnectMessage({ type: 'success', text: 'Koneksi MySQL diputus. Sistem kembali ke mode berkas lokal.' });
         await fetchStatus();
@@ -132,7 +143,10 @@ export function OnlineDatabaseView({ language, onNavigateToSchema, onDataSynced 
   const handleSyncPush = async () => {
     setIsSyncing(true);
     try {
-      const res = await fetch('/api/db/sync-to-mysql', { method: 'POST' });
+      const res = await fetch('/api/db/sync-to-mysql', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       if (data.success) {
         alert(`Berhasil sinkronisasi ke MySQL: ${data.projectsCount} Database, ${data.tablesCount} Tabel, ${data.recordsCount} Record.`);
@@ -151,7 +165,10 @@ export function OnlineDatabaseView({ language, onNavigateToSchema, onDataSynced 
     if (!confirm('Tarik data dari MySQL online? Data di memori lokal akan disesuaikan dengan isi MySQL.')) return;
     setIsSyncing(true);
     try {
-      const res = await fetch('/api/db/sync-from-mysql', { method: 'POST' });
+      const res = await fetch('/api/db/sync-from-mysql', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       if (data.success) {
         alert(`Berhasil memuat dari MySQL: ${data.projectsCount} Database, ${data.tablesCount} Tabel, ${data.recordsCount} Record.`);

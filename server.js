@@ -1053,16 +1053,36 @@ function getEnvDbConfig() {
     uri
   };
 }
-function getSafeDbConfig() {
+function maskString(str, visibleChars = 2) {
+  if (!str) return "";
+  if (str.length <= visibleChars * 2) {
+    return str[0] + "\u2022\u2022\u2022\u2022" + (str.length > 1 ? str[str.length - 1] : "");
+  }
+  return str.slice(0, visibleChars) + "\u2022\u2022\u2022\u2022" + str.slice(-visibleChars);
+}
+function maskHost(host) {
+  if (!host) return "";
+  if (host === "localhost" || host === "127.0.0.1") return "localhost";
+  const parts = host.split(".");
+  if (parts.length === 4) {
+    return `***.***.***.${parts[3]}`;
+  }
+  const domainParts = host.split(".");
+  if (domainParts.length >= 2) {
+    return `***.${domainParts.slice(-2).join(".")}`;
+  }
+  return maskString(host, 3);
+}
+function getSafeDbConfig(isSuperadmin = false) {
   const envCfg = getEnvDbConfig();
   const rawUri = envCfg.uri || "";
   const maskedUri = rawUri ? rawUri.replace(/:([^@]+)@/, ":\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022@") : "";
   return {
     isConfiguredInEnv: envCfg.enabled,
-    host: envCfg.host,
-    port: envCfg.port,
-    user: envCfg.user,
-    database: envCfg.database,
+    host: isSuperadmin ? maskHost(envCfg.host) : "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
+    port: envCfg.port || 3306,
+    user: isSuperadmin ? maskString(envCfg.user) : "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
+    database: isSuperadmin ? maskString(envCfg.database) : "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
     ssl: envCfg.ssl,
     uri: maskedUri,
     hasPassword: Boolean(envCfg.password && envCfg.password.length > 0),
@@ -1327,20 +1347,6 @@ async function connectMySQL(cfg) {
     };
   }
 }
-var autoReconnectTimer = null;
-function startAutoReconnectLoop() {
-  if (autoReconnectTimer) return;
-  autoReconnectTimer = setInterval(async () => {
-    const cfg = getEnvDbConfig();
-    if (cfg.enabled && !currentPool) {
-      console.log("[MySQL] Auto-reconnect: Mencoba menghubungkan ulang ke database online...");
-      const res = await connectMySQL(cfg);
-      if (res.success) {
-        console.log("[MySQL] Auto-reconnect: Berhasil terhubung kembali ke database online!");
-      }
-    }
-  }, 1e4);
-}
 async function disconnectMySQL() {
   if (currentPool) {
     try {
@@ -1355,18 +1361,25 @@ async function disconnectMySQL() {
 function isMySQLConnected() {
   return currentPool !== null;
 }
-async function getMySQLStatus() {
+async function getMySQLStatus(isSuperadmin = false) {
+  const isConnected = currentPool !== null;
   const envCfg = getEnvDbConfig();
+  if (!isSuperadmin) {
+    return {
+      engine: isConnected ? "mysql" : "local",
+      connected: isConnected
+    };
+  }
   if (!currentPool) {
     return {
       engine: "local",
       connected: false,
-      host: envCfg.host,
-      port: envCfg.port,
-      database: envCfg.database,
-      user: envCfg.user,
+      host: envCfg.enabled ? maskHost(envCfg.host) : void 0,
+      port: envCfg.enabled ? envCfg.port : void 0,
+      database: envCfg.enabled ? maskString(envCfg.database) : void 0,
+      user: envCfg.enabled ? maskString(envCfg.user) : void 0,
       ssl: envCfg.ssl,
-      error: lastError
+      error: lastError ? "Koneksi database terputus" : void 0
     };
   }
   const start = Date.now();
@@ -1378,10 +1391,10 @@ async function getMySQLStatus() {
     return {
       engine: "mysql",
       connected: true,
-      host: envCfg.host,
+      host: maskHost(envCfg.host),
       port: envCfg.port,
-      database: envCfg.database,
-      user: envCfg.user,
+      database: maskString(envCfg.database),
+      user: maskString(envCfg.user),
       ssl: envCfg.ssl,
       latencyMs,
       tablesCount: tableRows[0]?.total || 0,
@@ -1393,11 +1406,11 @@ async function getMySQLStatus() {
     return {
       engine: "mysql",
       connected: false,
-      host: envCfg.host,
+      host: maskHost(envCfg.host),
       port: envCfg.port,
-      database: envCfg.database,
-      user: envCfg.user,
-      error: lastError
+      database: maskString(envCfg.database),
+      user: maskString(envCfg.user),
+      error: "Gangguan koneksi database"
     };
   }
 }
@@ -2330,7 +2343,13 @@ async function startServer() {
   } else {
     console.log("[Database] Tidak ada konfigurasi MySQL di .env. Menggunakan mode penyimpanan lokal (data.json).");
   }
-  startAutoReconnectLoop();
+  app.disable("x-powered-by");
+  app.use((req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    next();
+  });
   app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ extended: true, limit: "10mb" }));
   app.use((req, res, next) => {
@@ -2342,18 +2361,40 @@ async function startServer() {
     }
     next();
   });
+  const getAuthUserFromRequest = (req) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return null;
+    const parts = authHeader.split(" ");
+    if (parts.length === 2 && parts[0].toLowerCase() === "bearer") {
+      return verifyJwtToken(parts[1]);
+    }
+    return null;
+  };
+  const requireSuperadmin = (req, res, next) => {
+    const authUser = getAuthUserFromRequest(req);
+    if (!authUser || authUser.role !== "superadmin") {
+      return res.status(403).json({
+        success: false,
+        error: "Akses ditolak: Operasi ini memerlukan otorisasi Superadmin."
+      });
+    }
+    req.user = authUser;
+    next();
+  };
   app.get("/api/db/status", async (req, res) => {
     try {
-      const status = await getMySQLStatus();
+      const authUser = getAuthUserFromRequest(req);
+      const isSuperadmin = authUser?.role === "superadmin";
+      const status = await getMySQLStatus(isSuperadmin);
       res.json(status);
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(200).json({ engine: isMySQLConnected() ? "mysql" : "local", connected: isMySQLConnected() });
     }
   });
-  app.get("/api/db/config", (req, res) => {
-    res.json(getSafeDbConfig());
+  app.get("/api/db/config", requireSuperadmin, (req, res) => {
+    res.json(getSafeDbConfig(true));
   });
-  app.post("/api/db/test-env", async (req, res) => {
+  app.post("/api/db/test-env", requireSuperadmin, async (req, res) => {
     try {
       const result = await testEnvConnection();
       res.json(result);
@@ -2361,7 +2402,7 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-  app.post("/api/db/test", async (req, res) => {
+  app.post("/api/db/test", requireSuperadmin, async (req, res) => {
     try {
       const result = await testEnvConnection();
       res.json(result);
@@ -2369,7 +2410,7 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-  app.post(["/api/db/reconnect-env", "/api/db/reconnect"], async (req, res) => {
+  app.post(["/api/db/reconnect-env", "/api/db/reconnect"], requireSuperadmin, async (req, res) => {
     try {
       const envCfg = getEnvDbConfig();
       if (!envCfg.enabled) {
@@ -2402,7 +2443,7 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-  app.post("/api/db/connect", async (req, res) => {
+  app.post("/api/db/connect", requireSuperadmin, async (req, res) => {
     try {
       const envCfg = getEnvDbConfig();
       const result = await connectMySQL(envCfg);
@@ -2423,7 +2464,7 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-  app.post("/api/db/disconnect", async (req, res) => {
+  app.post("/api/db/disconnect", requireSuperadmin, async (req, res) => {
     try {
       const result = await disconnectMySQL();
       res.json(result);
@@ -2431,7 +2472,7 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-  app.post("/api/db/sync-to-mysql", async (req, res) => {
+  app.post("/api/db/sync-to-mysql", requireSuperadmin, async (req, res) => {
     try {
       const result = await syncAllToMySQL(projects, tables, records);
       await syncMailConfigWithMySQL();
@@ -2440,7 +2481,7 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-  app.post("/api/db/sync-from-mysql", async (req, res) => {
+  app.post("/api/db/sync-from-mysql", requireSuperadmin, async (req, res) => {
     try {
       const mysqlData = await loadDataFromMySQL();
       projects = mysqlData.projects;
@@ -2458,10 +2499,10 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-  app.get("/api/db/schema-sql", (req, res) => {
+  app.get("/api/db/schema-sql", requireSuperadmin, (req, res) => {
     res.type("text/plain").send(getSchemaSQLContent());
   });
-  app.get("/api/db/tables-list", async (req, res) => {
+  app.get("/api/db/tables-list", requireSuperadmin, async (req, res) => {
     try {
       const tablesList = await getDatabaseTablesList();
       res.json({ success: true, tables: tablesList });
@@ -2469,7 +2510,7 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message, tables: [] });
     }
   });
-  app.get("/api/db/table-rows", async (req, res) => {
+  app.get("/api/db/table-rows", requireSuperadmin, async (req, res) => {
     try {
       const tableName = String(req.query.table || "");
       const page = parseInt(String(req.query.page || "1"), 10) || 1;
@@ -2480,15 +2521,6 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message, columns: [], rows: [], total: 0 });
     }
   });
-  const getAuthUserFromRequest = (req) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return null;
-    const parts = authHeader.split(" ");
-    if (parts.length === 2 && parts[0].toLowerCase() === "bearer") {
-      return verifyJwtToken(parts[1]);
-    }
-    return null;
-  };
   app.post("/api/auth/register", async (req, res) => {
     try {
       const { name, email, password } = req.body || {};
@@ -2741,10 +2773,10 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message || "Gagal menghapus pengguna." });
     }
   });
-  app.get("/api/mail/config", (req, res) => {
+  app.get("/api/mail/config", requireSuperadmin, (req, res) => {
     res.json(getSafeMailConfig());
   });
-  app.post("/api/mail/accounts", (req, res) => {
+  app.post("/api/mail/accounts", requireSuperadmin, (req, res) => {
     try {
       const { name, gmailUser, gmailAppPassword, fromName, host, port, secure, isActive } = req.body || {};
       if (!gmailUser || !gmailAppPassword) {
@@ -2765,7 +2797,7 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-  app.put("/api/mail/accounts/:id", (req, res) => {
+  app.put("/api/mail/accounts/:id", requireSuperadmin, (req, res) => {
     try {
       const { id } = req.params;
       const { name, gmailUser, gmailAppPassword, fromName, host, port, secure, isActive, order } = req.body || {};
@@ -2788,7 +2820,7 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-  app.delete("/api/mail/accounts/:id", (req, res) => {
+  app.delete("/api/mail/accounts/:id", requireSuperadmin, (req, res) => {
     try {
       const { id } = req.params;
       const deleted = deleteSmtpAccount(id);
@@ -2800,7 +2832,7 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-  app.post("/api/mail/reorder", (req, res) => {
+  app.post("/api/mail/reorder", requireSuperadmin, (req, res) => {
     try {
       const { ids } = req.body || {};
       if (Array.isArray(ids)) {
@@ -2811,7 +2843,7 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-  app.post("/api/mail/accounts/:id/test", async (req, res) => {
+  app.post("/api/mail/accounts/:id/test", requireSuperadmin, async (req, res) => {
     try {
       const { id } = req.params;
       const { testEmail } = req.body || {};
@@ -2821,7 +2853,7 @@ async function startServer() {
       res.status(500).json({ success: false, message: err.message });
     }
   });
-  app.post("/api/mail/test-all", async (req, res) => {
+  app.post("/api/mail/test-all", requireSuperadmin, async (req, res) => {
     try {
       const { testEmail } = req.body || {};
       if (!testEmail) {

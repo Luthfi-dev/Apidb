@@ -488,8 +488,14 @@ async function startServer() {
     console.log('[Database] Tidak ada konfigurasi MySQL di .env. Menggunakan mode penyimpanan lokal (data.json).');
   }
 
-  // Start background auto-reconnect loop
-  startAutoReconnectLoop();
+  // Security: Remove Express identity header & add standard OWASP security headers
+  app.disable('x-powered-by');
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
 
   // Safe body parser with 10mb limit for bulk / large payloads
   app.use(express.json({ limit: '10mb' }));
@@ -507,23 +513,51 @@ async function startServer() {
   });
 
   // -------------------------------------------------------------
-  // ONLINE DATABASE ENGINE & MYSQL SYNC MANAGEMENT APIS
+  // AUTHENTICATION & RBAC HELPER MIDDLEWARE
   // -------------------------------------------------------------
+  const getAuthUserFromRequest = (req: any): { userId: string; email: string; role: UserRole; name: string } | null => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return null;
+    const parts = authHeader.split(' ');
+    if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
+      return verifyJwtToken(parts[1]);
+    }
+    return null;
+  };
+
+  const requireSuperadmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const authUser = getAuthUserFromRequest(req);
+    if (!authUser || authUser.role !== 'superadmin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Akses ditolak: Operasi ini memerlukan otorisasi Superadmin.'
+      });
+    }
+    (req as any).user = authUser;
+    next();
+  };
+
+  // -------------------------------------------------------------
+  // ONLINE DATABASE ENGINE & MYSQL SYNC MANAGEMENT APIS (Protected)
+  // -------------------------------------------------------------
+  // Public Health / DB Status endpoint (Safe: Never exposes host, user, or db name publicly)
   app.get('/api/db/status', async (req, res) => {
     try {
-      const status = await getMySQLStatus();
+      const authUser = getAuthUserFromRequest(req);
+      const isSuperadmin = authUser?.role === 'superadmin';
+      const status = await getMySQLStatus(isSuperadmin);
       res.json(status);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(200).json({ engine: isMySQLConnected() ? 'mysql' : 'local', connected: isMySQLConnected() });
     }
   });
 
-  app.get('/api/db/config', (req, res) => {
-    res.json(getSafeDbConfig());
+  app.get('/api/db/config', requireSuperadmin, (req, res) => {
+    res.json(getSafeDbConfig(true));
   });
 
-  // Test connection using configuration directly from Environment Variables
-  app.post('/api/db/test-env', async (req, res) => {
+  // Test connection using configuration directly from Environment Variables (Superadmin Only)
+  app.post('/api/db/test-env', requireSuperadmin, async (req, res) => {
     try {
       const result = await testEnvConnection();
       res.json(result);
@@ -532,8 +566,8 @@ async function startServer() {
     }
   });
 
-  // Legacy test endpoint
-  app.post('/api/db/test', async (req, res) => {
+  // Legacy test endpoint (Superadmin Only)
+  app.post('/api/db/test', requireSuperadmin, async (req, res) => {
     try {
       const result = await testEnvConnection();
       res.json(result);
@@ -542,8 +576,8 @@ async function startServer() {
     }
   });
 
-  // Reconnect & sync using configuration from .env
-  app.post(['/api/db/reconnect-env', '/api/db/reconnect'], async (req, res) => {
+  // Reconnect & sync using configuration from .env (Superadmin Only)
+  app.post(['/api/db/reconnect-env', '/api/db/reconnect'], requireSuperadmin, async (req, res) => {
     try {
       const envCfg = getEnvDbConfig();
       if (!envCfg.enabled) {
@@ -580,7 +614,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/db/connect', async (req, res) => {
+  app.post('/api/db/connect', requireSuperadmin, async (req, res) => {
     try {
       const envCfg = getEnvDbConfig();
       const result = await connectMySQL(envCfg);
@@ -602,7 +636,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/db/disconnect', async (req, res) => {
+  app.post('/api/db/disconnect', requireSuperadmin, async (req, res) => {
     try {
       const result = await disconnectMySQL();
       res.json(result);
@@ -611,7 +645,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/db/sync-to-mysql', async (req, res) => {
+  app.post('/api/db/sync-to-mysql', requireSuperadmin, async (req, res) => {
     try {
       const result = await syncAllToMySQL(projects, tables, records);
       await syncMailConfigWithMySQL();
@@ -621,7 +655,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/db/sync-from-mysql', async (req, res) => {
+  app.post('/api/db/sync-from-mysql', requireSuperadmin, async (req, res) => {
     try {
       const mysqlData = await loadDataFromMySQL();
       projects = mysqlData.projects;
@@ -640,11 +674,11 @@ async function startServer() {
     }
   });
 
-  app.get('/api/db/schema-sql', (req, res) => {
+  app.get('/api/db/schema-sql', requireSuperadmin, (req, res) => {
     res.type('text/plain').send(getSchemaSQLContent());
   });
 
-  app.get('/api/db/tables-list', async (req, res) => {
+  app.get('/api/db/tables-list', requireSuperadmin, async (req, res) => {
     try {
       const tablesList = await getDatabaseTablesList();
       res.json({ success: true, tables: tablesList });
@@ -653,7 +687,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/db/table-rows', async (req, res) => {
+  app.get('/api/db/table-rows', requireSuperadmin, async (req, res) => {
     try {
       const tableName = String(req.query.table || '');
       const page = parseInt(String(req.query.page || '1'), 10) || 1;
@@ -666,18 +700,8 @@ async function startServer() {
   });
 
   // -------------------------------------------------------------
-  // AUTHENTICATION & RBAC MIDDLEWARE & APIS
+  // AUTHENTICATION & RBAC APIS
   // -------------------------------------------------------------
-  const getAuthUserFromRequest = (req: any): { userId: string; email: string; role: UserRole; name: string } | null => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return null;
-    const parts = authHeader.split(' ');
-    if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
-      return verifyJwtToken(parts[1]);
-    }
-    return null;
-  };
-
   // 1. Register User (Email Verification Required)
   app.post('/api/auth/register', async (req, res) => {
     try {
@@ -985,12 +1009,12 @@ async function startServer() {
   // -------------------------------------------------------------
   // SERVER SEND MAIL (GMAIL MULTI-SMTP FAILOVER POOL) APIS (Superadmin Only)
   // -------------------------------------------------------------
-  app.get('/api/mail/config', (req, res) => {
+  app.get('/api/mail/config', requireSuperadmin, (req, res) => {
     res.json(getSafeMailConfig());
   });
 
-  // Add new SMTP account
-  app.post('/api/mail/accounts', (req, res) => {
+  // Add new SMTP account (Superadmin Only)
+  app.post('/api/mail/accounts', requireSuperadmin, (req, res) => {
     try {
       const { name, gmailUser, gmailAppPassword, fromName, host, port, secure, isActive } = req.body || {};
       if (!gmailUser || !gmailAppPassword) {
@@ -1012,8 +1036,8 @@ async function startServer() {
     }
   });
 
-  // Update existing SMTP account
-  app.put('/api/mail/accounts/:id', (req, res) => {
+  // Update existing SMTP account (Superadmin Only)
+  app.put('/api/mail/accounts/:id', requireSuperadmin, (req, res) => {
     try {
       const { id } = req.params;
       const { name, gmailUser, gmailAppPassword, fromName, host, port, secure, isActive, order } = req.body || {};
@@ -1037,8 +1061,8 @@ async function startServer() {
     }
   });
 
-  // Delete SMTP account
-  app.delete('/api/mail/accounts/:id', (req, res) => {
+  // Delete SMTP account (Superadmin Only)
+  app.delete('/api/mail/accounts/:id', requireSuperadmin, (req, res) => {
     try {
       const { id } = req.params;
       const deleted = deleteSmtpAccount(id);
@@ -1051,8 +1075,8 @@ async function startServer() {
     }
   });
 
-  // Reorder accounts
-  app.post('/api/mail/reorder', (req, res) => {
+  // Reorder accounts (Superadmin Only)
+  app.post('/api/mail/reorder', requireSuperadmin, (req, res) => {
     try {
       const { ids } = req.body || {};
       if (Array.isArray(ids)) {
@@ -1064,8 +1088,8 @@ async function startServer() {
     }
   });
 
-  // Test single SMTP account
-  app.post('/api/mail/accounts/:id/test', async (req, res) => {
+  // Test single SMTP account (Superadmin Only)
+  app.post('/api/mail/accounts/:id/test', requireSuperadmin, async (req, res) => {
     try {
       const { id } = req.params;
       const { testEmail } = req.body || {};
@@ -1076,8 +1100,8 @@ async function startServer() {
     }
   });
 
-  // Test all active accounts via Failover Pool
-  app.post('/api/mail/test-all', async (req, res) => {
+  // Test all active accounts via Failover Pool (Superadmin Only)
+  app.post('/api/mail/test-all', requireSuperadmin, async (req, res) => {
     try {
       const { testEmail } = req.body || {};
       if (!testEmail) {

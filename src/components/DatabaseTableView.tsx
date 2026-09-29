@@ -399,7 +399,7 @@ export function DatabaseTableView({
   const endIndex = Math.min(startIndex + pageSize, totalRecords);
 
   return (
-    <div className="space-y-4 max-w-full overflow-hidden animate-fadeIn">
+    <div className="space-y-4 max-w-full animate-fadeIn">
       {/* Top Header Card */}
       <div className="p-4 sm:p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
@@ -886,7 +886,7 @@ export function DatabaseTableView({
 
           {/* VIEW STYLE 1: MOBILE NATIVE CARDS VIEW */}
           {viewStyle === 'cards' ? (
-            <div className="p-3 sm:p-4 space-y-3 max-h-[600px] overflow-y-auto">
+            <div className="p-3 sm:p-4 space-y-3">
               {records.length === 0 ? (
                 <div className="py-12 px-4 text-center text-slate-500 dark:text-slate-400">
                   <TableIcon className="w-8 h-8 mx-auto mb-2 text-slate-400 opacity-60" />
@@ -986,7 +986,7 @@ export function DatabaseTableView({
             </div>
           ) : (
             /* VIEW STYLE 2: FULL SPREADSHEET TABLE GRID */
-            <div className="w-full max-w-full overflow-x-auto min-h-[300px] touch-pan-x">
+            <div className="w-full max-w-full overflow-x-auto min-h-[300px] [touch-action:pan-x_pan-y] [-webkit-overflow-scrolling:touch]">
               <table className="w-full text-left border-collapse text-xs min-w-max">
                 <thead className="bg-slate-100/70 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10">
                   <tr>

@@ -3,6 +3,11 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
+  html {
+    overflow-x: clip;
+    -webkit-text-size-adjust: 100%;
+  }
+
   html.dark {
     color-scheme: dark;
   }
@@ -11,7 +16,9 @@
     background-color: #f8fafc;
     color: #0f172a;
     -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overflow-x: clip;
+    min-height: 100%;
   }
 
   html.dark body,

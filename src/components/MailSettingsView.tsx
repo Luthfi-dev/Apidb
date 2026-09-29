@@ -72,9 +72,17 @@ export function MailSettingsView({ currentUser, language }: MailSettingsViewProp
     attempts?: Array<{ accountName: string; success: boolean; error?: string }>;
   } | null>(null);
 
+  const getAuthHeaders = (): Record<string, string> => {
+    const token = localStorage.getItem('dataforge_token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
+
   const fetchConfig = async () => {
     try {
-      const res = await fetch('/api/mail/config');
+      const res = await fetch('/api/mail/config', { headers: getAuthHeaders() });
       const data = await res.json();
       if (data && Array.isArray(data.accounts)) {
         setAccounts(data.accounts);
@@ -145,7 +153,7 @@ export function MailSettingsView({ currentUser, language }: MailSettingsViewProp
 
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(formData)
       });
 
@@ -169,7 +177,10 @@ export function MailSettingsView({ currentUser, language }: MailSettingsViewProp
     if (!confirm(`Hapus akun SMTP "${name}" dari antrean failover?`)) return;
 
     try {
-      const res = await fetch(`/api/mail/accounts/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/mail/accounts/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       if (res.ok && data.success) {
         await fetchConfig();
@@ -186,7 +197,7 @@ export function MailSettingsView({ currentUser, language }: MailSettingsViewProp
     try {
       const res = await fetch(`/api/mail/accounts/${acc.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ isActive: !acc.isActive })
       });
       if (res.ok) {
@@ -209,7 +220,7 @@ export function MailSettingsView({ currentUser, language }: MailSettingsViewProp
     try {
       const res = await fetch('/api/mail/reorder', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ ids })
       });
       if (res.ok) {
@@ -231,7 +242,7 @@ export function MailSettingsView({ currentUser, language }: MailSettingsViewProp
     try {
       const res = await fetch(`/api/mail/accounts/${acc.id}/test`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ testEmail })
       });
       const data = await res.json();
@@ -259,7 +270,7 @@ export function MailSettingsView({ currentUser, language }: MailSettingsViewProp
     try {
       const res = await fetch('/api/mail/test-all', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ testEmail })
       });
       const data = await res.json();
