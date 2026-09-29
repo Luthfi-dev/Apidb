@@ -43,6 +43,7 @@ import {
   getSchemaSQLContent,
   getDatabaseTablesList,
   getTableDataPaginated,
+  optimizePerformanceIndexes,
   startAutoReconnectLoop
 } from './src/server/mysqlService';
 import {
@@ -696,6 +697,15 @@ async function startServer() {
       res.json({ success: true, ...data });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message, columns: [], rows: [], total: 0 });
+    }
+  });
+
+  app.post('/api/db/optimize-indexes', requireSuperadmin, async (req, res) => {
+    try {
+      const result = await optimizePerformanceIndexes();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 

@@ -297,12 +297,16 @@ export async function initMySQLTables(pool: mysql.Pool): Promise<void> {
       KEY \`idx_records_project\` (\`project_id\`),
       KEY \`idx_records_table\` (\`table_id\`),
       KEY \`idx_records_table_created\` (\`table_id\`, \`created_at\`),
+      KEY \`idx_records_table_updated\` (\`table_id\`, \`updated_at\`),
+      KEY \`idx_records_created\` (\`created_at\`),
       KEY \`idx_records_table_id\` (\`table_id\`, \`id\`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
-  // Ensure performance indexes exist on existing tables
+  // Ensure high-performance composite indexes exist on existing tables
   await addIndexIfNotExists(pool, 'df_records', 'idx_records_table_created', '(`table_id`, `created_at`)');
+  await addIndexIfNotExists(pool, 'df_records', 'idx_records_table_updated', '(`table_id`, `updated_at`)');
+  await addIndexIfNotExists(pool, 'df_records', 'idx_records_created', '(`created_at`)');
   await addIndexIfNotExists(pool, 'df_records', 'idx_records_table_id', '(`table_id`, `id`)');
 
   // Create df_settings
@@ -1200,5 +1204,55 @@ export async function getTableDataPaginated(tableName: string, page: number = 1,
     console.error('[MySQL] Error querying table data:', err);
     return { columns: [], rows: [], total: 0 };
   }
+}
+
+export async function optimizePerformanceIndexes(): Promise<{ success: boolean; applied: string[]; alreadyExisted: string[]; message: string; error?: string }> {
+  if (!currentPool) {
+    return {
+      success: false,
+      applied: [],
+      alreadyExisted: [],
+      message: 'Database MySQL online belum terhubung. Sambungkan koneksi database terlebih dahulu.',
+      error: 'Database MySQL online belum terhubung. Sambungkan koneksi database terlebih dahulu.'
+    };
+  }
+
+  const indexesToVerify = [
+    { table: 'df_records', name: 'idx_records_table_created', def: '(`table_id`, `created_at`)' },
+    { table: 'df_records', name: 'idx_records_table_updated', def: '(`table_id`, `updated_at`)' },
+    { table: 'df_records', name: 'idx_records_created', def: '(`created_at`)' },
+    { table: 'df_records', name: 'idx_records_table_id', def: '(`table_id`, `id`)' },
+    { table: 'df_tables', name: 'idx_project_slug', def: '(`project_id`, `slug`)' },
+    { table: 'df_projects', name: 'idx_project_owner', def: '(`owner_id`)' }
+  ];
+
+  const applied: string[] = [];
+  const alreadyExisted: string[] = [];
+
+  for (const item of indexesToVerify) {
+    try {
+      const [indexes]: any = await currentPool.query(
+        `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_NAME = ? AND INDEX_NAME = ? AND TABLE_SCHEMA = DATABASE()`,
+        [item.table, item.name]
+      );
+      if (indexes.length === 0) {
+        await currentPool.query(`ALTER TABLE \`${item.table}\` ADD INDEX \`${item.name}\` ${item.def}`);
+        applied.push(`${item.table}.${item.name}`);
+      } else {
+        alreadyExisted.push(`${item.table}.${item.name}`);
+      }
+    } catch (err: any) {
+      console.error(`[MySQL] Error optimizing index ${item.name}:`, err);
+    }
+  }
+
+  return {
+    success: true,
+    applied,
+    alreadyExisted,
+    message: applied.length > 0
+      ? `Berhasil menambahkan ${applied.length} indeks komposit baru ke database MySQL: ${applied.join(', ')}.`
+      : `Semua indeks komposit performa tinggi (${alreadyExisted.length} indeks) sudah aktif optimal di database MySQL.`
+  };
 }
 

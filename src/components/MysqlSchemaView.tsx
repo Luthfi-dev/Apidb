@@ -13,7 +13,10 @@ import {
   Table,
   Key,
   ShieldAlert,
-  ArrowRight
+  ArrowRight,
+  Zap,
+  Sparkles,
+  Loader2
 } from 'lucide-react';
 import { Language } from '../types';
 
@@ -27,6 +30,8 @@ export function MysqlSchemaView({ language, onNavigateToConnection }: MysqlSchem
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'sql' | 'tables' | 'guide'>('sql');
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizeResult, setOptimizeResult] = useState<{ message: string; isError?: boolean } | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem('dataforge_token');
@@ -45,6 +50,31 @@ export function MysqlSchemaView({ language, onNavigateToConnection }: MysqlSchem
         setLoading(false);
       });
   }, []);
+
+  const handleOptimizeIndexes = async () => {
+    setIsOptimizing(true);
+    setOptimizeResult(null);
+    try {
+      const token = localStorage.getItem('dataforge_token');
+      const res = await fetch('/api/db/optimize-indexes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOptimizeResult({ message: data.message, isError: false });
+      } else {
+        setOptimizeResult({ message: data.error || 'Gagal menerapkan indeks', isError: true });
+      }
+    } catch (err: any) {
+      setOptimizeResult({ message: err.message || 'Koneksi gagal', isError: true });
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(schemaSql);
@@ -102,6 +132,16 @@ export function MysqlSchemaView({ language, onNavigateToConnection }: MysqlSchem
             </button>
 
             <button
+              onClick={handleOptimizeIndexes}
+              disabled={isOptimizing}
+              className="px-3.5 py-2 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
+              title="Terapkan indeks komposit performa tinggi ke MySQL online"
+            >
+              {isOptimizing ? <Loader2 className="w-4 h-4 animate-spin text-white" /> : <Zap className="w-4 h-4 text-amber-200" />}
+              <span>{isOptimizing ? 'Menerapkan...' : 'Terapkan Indeks Komposit'}</span>
+            </button>
+
+            <button
               onClick={onNavigateToConnection}
               className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
             >
@@ -110,6 +150,17 @@ export function MysqlSchemaView({ language, onNavigateToConnection }: MysqlSchem
             </button>
           </div>
         </div>
+
+        {optimizeResult && (
+          <div className={`mt-4 p-3 rounded-xl text-xs font-semibold flex items-center gap-2 border animate-fadeIn ${
+            optimizeResult.isError
+              ? 'bg-rose-500/20 text-rose-200 border-rose-500/40'
+              : 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40'
+          }`}>
+            <Sparkles className="w-4 h-4 shrink-0" />
+            <span>{optimizeResult.message}</span>
+          </div>
+        )}
 
         {/* View Switcher Tabs */}
         <div className="flex items-center gap-2 mt-5 pt-4 border-t border-slate-800/80">
@@ -280,8 +331,34 @@ export function MysqlSchemaView({ language, onNavigateToConnection }: MysqlSchem
                   <span className="text-[10px] text-slate-400">LONGTEXT (JSON)</span>
                 </div>
                 <div className="flex items-center justify-between p-1.5 rounded bg-slate-50 dark:bg-slate-800/50">
+                  <span>created_at</span>
+                  <span className="text-[10px] text-slate-400">DATETIME</span>
+                </div>
+                <div className="flex items-center justify-between p-1.5 rounded bg-slate-50 dark:bg-slate-800/50">
                   <span>updated_at</span>
                   <span className="text-[10px] text-slate-400">DATETIME</span>
+                </div>
+              </div>
+
+              {/* Performance Composite Indexes Section */}
+              <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400 mb-1.5 uppercase tracking-wider">
+                  <Zap className="w-3 h-3" />
+                  <span>Indeks Komposit Performa Tinggi (Instan SELECT & COUNT)</span>
+                </div>
+                <div className="space-y-1 text-[10px] font-mono">
+                  <div className="p-1 rounded bg-amber-50/60 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 flex items-center justify-between">
+                    <span>idx_records_table_created</span>
+                    <span className="text-slate-400 text-[9px]">(table_id, created_at)</span>
+                  </div>
+                  <div className="p-1 rounded bg-amber-50/60 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 flex items-center justify-between">
+                    <span>idx_records_table_updated</span>
+                    <span className="text-slate-400 text-[9px]">(table_id, updated_at)</span>
+                  </div>
+                  <div className="p-1 rounded bg-amber-50/60 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 flex items-center justify-between">
+                    <span>idx_records_created</span>
+                    <span className="text-slate-400 text-[9px]">(created_at)</span>
+                  </div>
                 </div>
               </div>
             </div>

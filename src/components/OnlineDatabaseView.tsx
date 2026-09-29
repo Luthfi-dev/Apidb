@@ -120,6 +120,29 @@ export function OnlineDatabaseView({ language, onNavigateToSchema, onDataSynced 
     }
   };
 
+  const [isOptimizingIndexes, setIsOptimizingIndexes] = useState(false);
+
+  const handleOptimizeIndexes = async () => {
+    setIsOptimizingIndexes(true);
+    setConnectMessage(null);
+    try {
+      const res = await fetch('/api/db/optimize-indexes', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      const data = await res.json();
+      if (data.success) {
+        setConnectMessage({ type: 'success', text: data.message });
+      } else {
+        setConnectMessage({ type: 'error', text: data.error || 'Gagal menerapkan indeks' });
+      }
+    } catch (err: any) {
+      setConnectMessage({ type: 'error', text: err.message || 'Terjadi kesalahan' });
+    } finally {
+      setIsOptimizingIndexes(false);
+    }
+  };
+
   const handleDisconnect = async () => {
     if (!confirm('Putuskan koneksi ke MySQL online dan beralih kembali ke penyimpanan lokal data.json?')) return;
     setIsConnecting(true);
@@ -465,6 +488,18 @@ DB_SSL=false
                 {isConnecting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
                 <span>{isConnected ? 'Sinkronkan Ulang dari ENV' : 'Hubungkan ke Database Online'}</span>
               </button>
+
+              {isConnected && (
+                <button
+                  onClick={handleOptimizeIndexes}
+                  disabled={isOptimizingIndexes || isConnecting}
+                  className="px-4 py-2.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2 disabled:opacity-50"
+                  title="Pastikan semua indeks komposit performa tinggi aktif di MySQL"
+                >
+                  {isOptimizingIndexes ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" /> : <Zap className="w-3.5 h-3.5 text-amber-200" />}
+                  <span>Optimalkan Indeks Komposit</span>
+                </button>
+              )}
 
               {isConnected && (
                 <button
